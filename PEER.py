@@ -1273,15 +1273,3 @@ class MainMenu:
 
 canvas = None
 mm = MainMenu()
-
-#main_menu = tkinter.Tk()
-#mm = MainMenu(main_menu)
-#main_menu.mainloop()     
-
-#a = "Hello *Timmy* how are you"
-#a.count("*")
-
-#def find_all(text, search_for):
-#    find_list = []
-#    for a in range(0, text.count(search_for)):
-#        find_list[a] = text.
