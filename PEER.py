@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Thu Nov  7 17:58:32 2019
 
-@author: tbednall
-(C) Tim Bednall 2019
-"""
-print("Loading Peer Evaluation Enhancement Resource (PEER)...")
+updates = """
+Version 0.1.0 (2020-02-22): Default bulk messages are now editable in the 'default.txt' and 'config.txt' files.
+Version 0.0.5 (2020-02-21): Fixed code to automatically hide grades from the students. In the SaveData file, the rater appears before the receiver.
+Version 0.0.4 (2020-02-20): Only weekdays are now counted when calculating late penalties.
+Version 0.0.3: Fixed a bug that caused the program to crash if there was an empty group (under "Export Groups").
+Version 0.0.2: Fixed bug with repeated "other" list, and made the uploading of marks more robust.
+Version 0.0.1: Fixed bug, regarding "PointsPossible" property of the "config" dictionary
+
+(C) Tim Bednall 2019-2020."""
+
+print("Loading Peer Evaluation Enhancement Resource (PEER)...\n\nVersion history:")
+print(updates)
 
 import tkinter
 from tkinter import ttk
@@ -17,11 +23,13 @@ from random import shuffle
 import pandas as pd
 import numpy as np
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import os
+import requests
 
-#%% Global variables
+#%% Global functions and variables
+
 canvas = None
 qualtrics = ""
 orig_data = ""
@@ -33,7 +41,6 @@ other_list = [] # The names of other variables
 ratio_dict = {} 
 adj_dict = {}
 
-#%% Global functions
 def clean_text(text):
     text = text.strip()
     text = text.replace("'", "''")
@@ -60,38 +67,61 @@ def replace_multiple(str_text, rep_list, str_rep = ""):
     for item in rep_list: str_text = str_text.replace(str(item), str_rep)
     return(str_text)
 
-def RestoreDefaults():
-    global config
-    hard_defaults = {
-            'API_URL': "",
-            'API_TOKEN': "",
-            'EmailSuffix': "",
-            'ScoreType': 2,
-            'SelfVote': 2,
-            'AdjustedMark_Name': "Peer Mark",
-            'MinimumPeers': 2,
-            'Penalty_NonComplete': 100,
-            'Penalty_PartialComplete': 0,
-            'Penalty_SelfPerfect': 0,
-            'Penalty_PeersAllZero': 0,
-            'Penalty_PerDayLate': 0,
-            'Exclude_PartialComplete': 0,
-            'Exclude_SelfPerfect': 0,
-            'Exclude_PeersAllZero': 0,
-            'SaveLong': 0,
-            'SaveWide': 0,
-            'PointsPossible': 5,
-            'RescaleTo': 5
-            }
-    try:
-        f = open("defaults.txt", "r")
-        defaults = json.loads(f.read())
-        f.close()
-        for item in defaults: config[item] = defaults[item]
-    except:
-        print("Defaults file not found.")
-    for item in hard_defaults:
-        if item not in config: config[item] = hard_defaults[item]
+
+# Load the configuration file
+# First of all, load the hard defaults
+hard_defaults = {
+    'API_URL': "",
+    'API_TOKEN': "",
+    'EmailSuffix': "",
+    'ScoreType': 2,
+    'SelfVote': 2,
+    'AdjustedMark_Name': "Peer Mark",
+    'MinimumPeers': 2,
+    'Penalty_NonComplete': 100,
+    'Penalty_PartialComplete': 0,
+    'Penalty_SelfPerfect': 0,
+    'Penalty_PeersAllZero': 0,
+    'Penalty_PerDayLate': 0,
+    'Exclude_PartialComplete': 0,
+    'Exclude_SelfPerfect': 0,
+    'Exclude_PeersAllZero': 0,
+    'SaveLong': 0,
+    'SaveWide': 0,
+    'PointsPossible': 5,
+    'RescaleTo': 5,
+    'subject_confirm': "Confirming Group Membership",
+    'message_confirm': "Dear all,\n\nI am writing to confirm your membership in: [Group Name].\n\nAccording to our records, the members of this group include:\n[Group Members]\nIf there are any errors in our records -- such as missing group members or people listed who are not in your group -- please contact me as soon as possible. You may ignore this message if these records are correct.",
+    'subject_nogroup' : "Lack of Group Membership",
+    'message_nogroup' : "Dear [First Name],\n\nI am writing because according to our records, you are not currently listed as a member of any student team for this unit.\n\nAs you would be aware, there is a group assignment due later in the semester. If you do not belong to a team, you will be unable to complete the assignment.\n\nIf there is another circumstance that would prevent you from joining a group project, please let me know as soon as possible.\n\nPlease let me know if there is anything I can do to support you in the meantime.",
+    'subject_invitation': "Peer Evaluation now available",
+    'message_invitation': "Dear [First Name],\n\nThe Peer Evaluation survey is now available.\n\nYou may access it via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.",
+    'subject_reminder': "Reminder: Peer Evaluation due",
+    'message_reminder': "Dear [First Name],\n\nThis is a courtesy reminder to complete the Peer Evaluation survey. According to our records, you have not yet completed this survey.\n\nYou may access the survey via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.",
+    'subject_thankyou' : "Thank you for completing the Peer Evaluation",
+    'message_thankyou' : "Dear [First Name],\n\nThank you for completing the Peer Evaluation. There is no need to take any further action."
+    }
+config = hard_defaults
+
+# Overwrite hard defaults with soft defaults
+try:
+    f = open("defaults.txt", "r")
+    defaults = json.loads(f.read())
+    f.close()
+    for item in defaults: config[item] = defaults[item]
+except:
+    defaults = hard_defaults
+
+# Overwrite defaults with user's own configuration file
+try:
+    f = open("config.txt", "r")
+    user_config = json.loads(f.read())
+    f.close()
+    for item in user_config: config[item] = user_config[item]
+except:
+    print("Creating user configuration file from defaults...")
+
+session = {}
 
 def submission_date(ID):
     '''This function returns the date the Qualtrics survey was submitted (the EndDate field).'''
@@ -102,15 +132,17 @@ def submission_date(ID):
     except:
         return(np.nan)
 
-def days_late(ID):
-    '''This function returns the number of days late an assignment was (or 0 if it was submitted before time).'''
+def days_late(ID, weekdays_only = True):
+    '''This function returns the number of days late an assignment was (or 0 if it was submitted before time). By default, it only counts weekdays.'''
     sub_date = submission_date(ID)
     if "DueDate" in session and type(sub_date) is datetime:
-        #due_date = datetime.strptime(session["DueDate"], '%Y-%m-%dT%H:%M:%S')
         due_date = session["DueDate"]
         sub_date = datetime(sub_date.year, sub_date.month, sub_date.day, 0,0,0)
         due_date = datetime(due_date.year, due_date.month, due_date.day, 0,0,0)
-        return(max(0, (sub_date - due_date).days))
+        d_late = max(0, (sub_date - due_date).days)
+        for a in range(0,d_late*weekdays_only):
+            d_late -= ((sub_date - timedelta(days=a)).weekday() >= 5)
+        return(d_late)
     else:
         return(np.nan)
 
@@ -186,7 +218,7 @@ def ratings_received(ID, rater = 0):
         if (rater in [0, rater_ID]):
             rr.append([])
             if (qualtrics["Student_id"]==rater_ID).any() and not(
-                  (config["Exclude_PartialComplete"] == 1 and PartialComplete(ID) == True) or
+                    (config["Exclude_PartialComplete"] == 1 and PartialComplete(ID) == True) or
                     (config["Exclude_SelfPerfect"] == 1 and SelfPerfect(ID) == True) or
                     (config["Exclude_PeersAllZero"] == 1 and PeersAllZero(ID) == True)):
                 y = qualtrics[qualtrics["Student_id"] == rater_ID].index[0]
@@ -246,11 +278,17 @@ def ratee_ratio(ID):
 
 # Feedback: A function to locate the feedback provided to each person
 def feedback(ID):
+    if "Feedback#1_1_1" in qualtrics.columns: # To maintain compatability with the old format
+        feed_peer = "Feedback#1_x_1"
+        feed_inst = "Feedback#2_x_1"
+    else:
+        feed_peer = "Feedback_x_1"
+        feed_inst = "Feedback_x_2"
     fb = [[],[]]
     if (qualtrics["Student_id"]==ID).any():
         y = qualtrics[qualtrics["Student_id"] == ID].index[0]
-        fb[0].append(qualtrics.loc[y, "Feedback_10_1"]) # Any other feedback
-        fb[1].append(qualtrics.loc[y, "Feedback_10_2"]) # Any other feedback
+        fb[0].append(qualtrics.loc[y, feed_peer.replace("x","10")]) # Any other feedback "Feedback#1_10_1"
+        fb[1].append(qualtrics.loc[y, feed_inst.replace("x","10")]) # Any other feedback "Feedback#2_10_1"
     else:
         fb[0].append(np.nan) # Any other feedback
         fb[1].append(np.nan) # Any other feedback
@@ -259,8 +297,8 @@ def feedback(ID):
             y = qualtrics[qualtrics["Student_id"] == rater_ID].index[0]
             for peer in range(1, qualtrics.loc[y, "NumPeers"]+1): # Identify peer raters
                 if (qualtrics.loc[y, "Peer" + str(peer) + '_id'] == ID): x = peer
-            fb[0].append(qualtrics.loc[y, "Feedback_" + str(x) + "_1"])
-            fb[1].append(qualtrics.loc[y, "Feedback_" + str(x) + "_2"])
+            fb[0].append(qualtrics.loc[y, feed_peer.replace("x",str(x))])
+            fb[1].append(qualtrics.loc[y, feed_inst.replace("x",str(x))])
         else:
             fb[0].append(np.nan)
             fb[1].append(np.nan)           
@@ -294,6 +332,7 @@ def adj_score(ID, apply_penalty = True):
                     rat_total[0] = np.nan
                 rat_mean = np.nanmean(rat_total) # Take the mean total score
                 orig_score = rat_mean / len(tw_list) # Divide by the number of items
+                if np.isnan(config["RescaleTo"]) == False and config["RescaleTo"] != 0 and type(orig_score) is not str: orig_score = orig_score*config["RescaleTo"]/(session["points_possible"]-1) # Rescale the score to the desired range
             else:
                 orig_score = "Insufficient ratings received (" + str(n_ratings(ID)) + ")"
         elif (config["ScoreType"] == 2): # Return an adjusted scorem based on group mark
@@ -305,9 +344,13 @@ def adj_score(ID, apply_penalty = True):
             if n_ratings(ID) >= config["MinimumPeers"]: # Number of legit scores must exceed minimum peers
                 orig_score = orig_score*np.nanmean(ratio)
             orig_score = np.min([orig_score, session["points_possible"]]) # Score is not allowed to exceed number of points possible.
-        if np.isnan(config["RescaleTo"]) == False and config["RescaleTo"] != 0 and type(orig_score) is not str: orig_score = orig_score*(config["RescaleTo"]/session["points_possible"]) # Rescale the score to the desired range
+            if np.isnan(config["RescaleTo"]) == False and config["RescaleTo"] != 0 and type(orig_score) is not str: orig_score = orig_score*(config["RescaleTo"]/session["points_possible"]) # Rescale the score to the desired range
         adj_dict[ID] = orig_score
-    if apply_penalty == True: orig_score = orig_score*penalty(ID) # Apply the penalty if the person does not complete the peer evaluation
+    if apply_penalty == True: 
+        try:
+            orig_score = orig_score*penalty(ID) # Apply the penalty if the person does not complete the peer evaluation
+        except:
+            pass
     return(orig_score)
 
 # Comments - a function to provide the students with their scores on their peer ratings, as well as peer feedback
@@ -324,8 +367,18 @@ def comments(ID):
     if len(penalty_text) > 0: comment = comment + "The following penalties have been subtracted from your Peer Mark:\n" + penalty_text
     if n_ratings(ID) < config["MinimumPeers"]: return(comment)
     comment = ""
+    general_comments = []
+    for peer in rater_peerID(ID)[1:]:
+        if type(feedback(peer)[0][0])==str:
+            if len(feedback(peer)[0][0])>0:
+                general_comments.append(feedback(peer)[0][0])
+    if len(general_comments) > 0:
+        comment = comment + "The following general comments about your team (not about yourself personally) were provided by your peers:\n\n"
+        shuffle(general_comments) # Shuffle the general comments so the rater is not identifiable
+        for temp_comment in general_comments:
+            comment = comment + '"' + temp_comment + '"\n\n'
     if sum(pd.notnull(feedback(ID)[0][1:])) > 0:
-        comment = "You have received the following feedback from your peers:\n\n"
+        comment = comment + "You have received the following specific feedback from your peers:\n\n"
         peer_feedback = feedback(ID)[0][1:]
         shuffle(peer_feedback) # Shuffle the order of the feedback so the rater is not identifiable
         for feed in peer_feedback:
@@ -365,8 +418,8 @@ def comments(ID):
             comment = comment + "Your initial mark was therefore not adjusted.\n\n"
     if len(penalty_text) > 0: comment = comment + "Your Peer Mark has received the following penalties:\n" + penalty_text
     return(comment)
-
 #%% Settings
+    
 class Settings:
     def __init__(self, window):
         self.window = window
@@ -401,7 +454,8 @@ class Settings:
         
     def restore_defaults(self):
         global config
-        RestoreDefaults()
+        config = {}
+        for item in defaults: config[item] = defaults[item]
         self.update_fields()
         
     def save_settings(self):
@@ -592,26 +646,26 @@ class ExportGroups():
         if self.contactgroups.get():
             print("Sending confirmation message to groups via Canvas...")
             for a in range(0, len(group_list["Group_id"])):
-                conf_message = "Dear all,\n\nI am writing to confirm your membership in: " + group_list["Group_name"][a] + ".\n\n"
-                conf_message = conf_message + "According to our records, the members of this group include:\n"
+                conf_message = config["message_confirm"].replace("[Group Name]", group_list["Group_name"][a])
+                grp_list = ""
+                iter = 0
                 for student in group_list["Student_id"][a]:
-                    conf_message = conf_message + "* " + user_list.loc[user_list["Student_id"]==student, "Student_name"].values[0] + "\n"
-                conf_message = conf_message + "\nIf there are any errors in our records -- such as missing group members or people listed who are not in your group -- please contact me as soon as possible. You may ignore this message if these records are correct."
-                message = canvas.create_conversation(recipients = ['group_' + str(group_list["Group_id"][a])],
-                                                     body = conf_message,
-                                                     subject = "Confirming group membership details",
-                                                     force_new = True,
-                                                     group_conversation = True,
-                                                     context_code = "course_" + str(course.id))
+                    iter = iter + 1
+                    grp_list = grp_list + "* " + user_list.loc[user_list["Student_id"]==student, "Student_name"].values[0] + "\n"
+                if iter > 0: # Only send messages to groups with 1 or more members
+                    conf_message = conf_message.replace("[Group Members]", grp_list)
+                    message = canvas.create_conversation(recipients = ['group_' + str(group_list["Group_id"][a])],
+                                                         body = conf_message,
+                                                         subject = config["subject_confirm"],
+                                                         force_new = True,
+                                                         group_conversation = True,
+                                                         context_code = "course_" + str(course.id))
                 
             for student in user_list.loc[np.isnan(user_list["Group_id"]), "Student_id"]:
-                conf_message = "Dear " + user_list.loc[user_list["Student_id"] == student, "FirstName"].values[0] + "\n\n"
-                conf_message = conf_message + "I am writing because according to our records, you are not currently listed as a member of any student groups for this unit. "
-                conf_message = conf_message + "As you would be aware, there is a group assignment due later in the semester. If you do not belong to a group, you will be unable to complete the assignment.\n\n"
-                conf_message = conf_message + "If there is another circumstance that would prevent you from joining a group project, you may also consider applying for an Equitable Assessment Arrangement (EAA); please see: https://www.swinburne.edu.au/current-students/manage-course/exams-results-assessment/special-consideration-adjustments-extensions/equitable-assessment-arrangements/.\n\nPlease let me know if there is anything I can do to support you in the meantime."
+                conf_message = config["message_nogroup"].replace("[First Name]", user_list.loc[user_list["Student_id"] == student, "FirstName"].values[0])
                 message = canvas.create_conversation(recipients = [str(student)],
                                                      body = conf_message,
-                                                     subject = "Lack of group enrolment",
+                                                     subject = config["subject_nogroup"],
                                                      force_new = True,
                                                      context_code = "course_" + str(course.id))
             info_text = info_text + " A message has been sent to students asking for confirmation of their group membership."
@@ -704,15 +758,6 @@ class PeerMark():
    def status(self, stat_text):
        self.status_text.set(stat_text)
        time.sleep(0.01)
-       #try:
-       #    stat_text = outqueue.get_nowait()
-       #    if stat_text is not self.sentinel:
-       #        self.status_text.set(stat_text)
-       #        self.peermark.after(250, self.status, outqueue)
-       #    else:
-       #        self.peermark.destroy()
-       #except queue.Empty:
-       #    self.peermark.after(250, self.status, outqueue)
        
    def start_calculate(self):
        self.status("Loading, please be patient...")
@@ -720,30 +765,17 @@ class PeerMark():
        session["GroupAssignment_ID"] = self.assn_id[self.peermark_assn.current()]
        session["SaveData"] = self.UploadPeerMark.get()
        course = canvas.get_course(session["course_ids"][self.peermark_unit.current()])
-       calculate_marks(course)
-       #global outqueue
-       #outqueue = mp.Queue()
-       #outqueue.put("About to begin uploading marks...")
-
-       # Get details from form
-
-
-       
-       #proc = mp.Process(target=calculate_marks, args=(course, outqueue))
-       #proc.daemon = True
-       #time.sleep(0.01)
-       #proc.start()
-       #self.peermark.after(250, self.status, outqueue)
+       calculate_marks(course, self)
 
 def PeerMark_call():
     global pm
     pm = PeerMark()
 
 #%% Calculate marks   
-def calculate_marks(course): 
+def calculate_marks(course, pm): 
    if session["SaveData"]:
        filename = ""
-       filename = tkinter.filedialog.asksaveasfilename(defaultextension=".xlsx", title = "Save Exported Data As...", filetypes = (("Excel files","*.xlsx"),("all files","*.*")))
+       filename = tkinter.filedialog.asksaveasfilename(initialfile="SaveData.xlsx", defaultextension=".xlsx", title = "Save Exported Data As...", filetypes = (("Excel files","*.xlsx"),("all files","*.*")))
     
    print("Uploading peer marks... please be patient.")
    #messagebox.showinfo("Uploading Peer Marks...", "This process may take a long time. Please do not close down the app, even if it appears to hang.")
@@ -751,6 +783,7 @@ def calculate_marks(course):
 
    # Set up data frame
    orig_data = {"Student":[], "ID":[], "SIS User ID":[], "SIS Login ID":[], "orig_grade":[]}
+   other_list = [] # Flush the "other" list.
    
    # Load the Qualtrics file
    print("Loading the Qualtrics file...")
@@ -775,10 +808,16 @@ def calculate_marks(course):
                                               'points_possible': config["RescaleTo"],
                                               'description': 'This assignment is your Peer Mark for the team project.',
                                               'published': True,
-                                              'muted': True,
                                               'due_at': datetime.strftime(session["DueDate"], '%Y-%m-%dT23:59:59')})
-        
+     
    print("New assignment created: " + new_assignment.name + " (" + str(new_assignment.id) + ")")
+   
+   # Set the assignment to manually reveal grades to students (i.e., hide the grades until released), using GraphQL
+   query = {'access_token': config["API_TOKEN"],
+            'query': 'mutation MyMutation {\nsetAssignmentPostPolicy(input: {assignmentId: ' + str(new_assignment.id) + ', postManually: true}) {\npostPolicy {\npostManually\n}\n}}'
+            }
+   url = "{}api/graphql".format(config["API_URL"])
+   requests.post(url, data = query)
 
    # Get sections
    session["sections"] = []
@@ -796,7 +835,7 @@ def calculate_marks(course):
            orig_data["SIS User ID"].append(user.sis_user_id)
            orig_data["SIS Login ID"].append(user.sis_user_id)
            orig_data["orig_grade"].append(np.nan)
-           session["points_possible"] = config["points_possible"]
+           session["points_possible"] = config["PointsPossible"]
            for section in session["sections"]: orig_data[section].append(False)
            print("> " + user.name)
            #self.peermark.after(200, self.status, "--" + user.name)
@@ -837,6 +876,7 @@ def calculate_marks(course):
    # Determine the teamwork items in the Qualtrics file
    for b,a in enumerate(qualtrics.columns):
        if (a[0:8].upper() == "TEAMWORK"):
+           a.replace("&shy", "\u00AD") # Replace soft hyphen HTML with actual soft hyphen
            if (a.find("_") != -1):
                tw_list.append(a[0:a.rfind("_")])
                if qualtrics.iloc[0, b].count("\u00AD") == 2:
@@ -854,8 +894,9 @@ def calculate_marks(course):
    
    # Drop redundant rows
    qualtrics = qualtrics.drop(qualtrics.index[[0,1]]) # Drop rows 2 and 3
+   qualtrics.dropna(subset = ["Student_id"], axis = 0, inplace = True) # Drop rows where there is no Student ID
    qualtrics = qualtrics.reset_index(drop = True) # Reset the index
-
+   
    # Convert the "Finished" column to Boolean values
    qualtrics["Finished"] = qualtrics["Finished"]=="True"
       
@@ -905,19 +946,27 @@ def calculate_marks(course):
 
    # Upload marks to Canvas
    print("Uploading marks to Canvas...")
-   for submission in new_assignment.get_submissions():
-       ID = submission.user_id
-       print("> " + orig_data.loc[orig_data["ID"]==ID, "Student"].values[0] + ": " + str(round(adj_score(ID),2)))
-       if type(adj_score(ID)) is not str:
-           if ID in qualtrics["Student_id"].values:
-               submission.edit(submission={'posted_grade': adj_score(ID), 'submitted_at': datetime.strftime(submission_date(52), '%Y-%m-%dT23:59:59')})
-           else:
-               submission.edit(submission={'posted_grade': adj_score(ID)})
-       # Code is fine, but I'm not authorised to change the submission date
-       # , 'submitted_at': datetime.strftime(submission_date(ID), '%Y-%m-%dT23:59:59')
-       submission.edit(comment={'text_comment': comments(ID)})
+   iter = 0
+   tstamp = datetime.now().timestamp()
+   while (iter==0 and (datetime.now().timestamp() - tstamp < 10)): # Keep looping until at least one iteration has been completed. Timeout after 10 seconds.
+       for submission in new_assignment.get_submissions():
+           iter = iter + 1
+           ID = submission.user_id
+           try:
+               print("> " + orig_data.loc[orig_data["ID"]==ID, "Student"].values[0] + ": " + str(round(adj_score(ID),2)))
+           except:
+               pass
+           if type(adj_score(ID)) is not str:
+               if ID in qualtrics["Student_id"].values:
+                   submission.edit(submission={'posted_grade': adj_score(ID), 'posted_at': "null", 'submitted_at': datetime.strftime(submission_date(ID), '%Y-%m-%dT23:59:59')})
+               else:
+                   submission.edit(submission={'posted_grade': adj_score(ID), 'posted_at': "null"})
+           submission.edit(comment={'text_comment': comments(ID)})
        
    new_assignment.edit(assignment = {"published": False})
+   
+   if iter==0:
+       messagebox.showinfo("Error", "Unable to upload marks to Canvas. Please try again.")
    
     # Save the data; add all of the penalties information
    if session["SaveData"] and filename != "":
@@ -941,10 +990,10 @@ def calculate_marks(course):
         print("Saving data in long format...")
         long_data = {}
         for section in session["sections"]: long_data[section] = []
-        long_data["ReceiverName"] = []
         long_data["RaterName"] = []
-        long_data["ReceiverID"] =  []
+        long_data["ReceiverName"] = []
         long_data["RaterID"] = []
+        long_data["ReceiverID"] =  []
         for item in tw_list: long_data[item] = []
         long_data["FeedbackShared"] = []
         long_data["FeedbackInstructor"] = []
@@ -983,7 +1032,6 @@ def calculate_marks(course):
     
     # Create dataset (wide form) if requested
         print("Saving data in wide format...")
-        #maxpeer = max_peers()
         wide_data = {}
         wide_data["StudentID"] = []
         wide_data["StudentName"] = []
@@ -1010,16 +1058,21 @@ def calculate_marks(course):
             wide_data["StudentID"].append(ID)
             if (config["ScoreType"] == 2): wide_data["OriginalScore"].append(float(orig_data[orig_data["ID"]==ID]["orig_grade"]))
             wide_data["PeerMark"].append(adj_score(ID))
+            
+        global temp_data
+        temp_data = wide_data
         wide_data = pd.DataFrame(wide_data)
         
         with pd.ExcelWriter(filename) as writer:
             wide_data.to_excel(writer, sheet_name='Student Data', index = False)
             long_data.to_excel(writer, sheet_name='Rating Data', index = False)
         
-        messagebox.showinfo("Upload Complete", 'The peer marks have been successfully uploaded to Canvas. An assignment, "Peer Mark", has been created. When it is ready to be released to students, you should publish the assignment and unmute it from the Gradebook. Peer rater data saved to "ExportData.xlsx".')
+        messagebox.showinfo("Upload Complete", 'The peer marks have been successfully uploaded to Canvas. An assignment, "Peer Mark", has been created. When it is ready to be released to students, you should publish the assignment and unmute it from the Gradebook. Peer rater data saved to "' + filename + '".')
    else:
         messagebox.showinfo("Upload Complete", 'The peer marks have been successfully uploaded to Canvas. An assignment, "Peer Mark", has been created. When it is ready to be released to students, you should publish the assignment and unmute it from the Gradebook.')
-#%% Adjust Policies
+   pm.peermark.destroy()
+   
+#%% Policies
 class Policies():
     def __init__(self):
         self.policies = tkinter.Toplevel()
@@ -1196,14 +1249,14 @@ class BulkMail:
             self.message.delete(1.0, tkinter.END)
             self.subject_text.set("")
             if self.window_sendto.current() == 0:
-                self.subject_text.set("Peer Evaluation now available")
-                self.message.insert(tkinter.END, "Dear [First Name],\n\nThe Peer Evaluation survey for this unit is now available.\n\nYou may access it via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.")
+                self.subject_text.set(config["subject_invitation"])
+                self.message.insert(tkinter.END, config["message_invitation"])
             if self.window_sendto.current() == 1:
-                self.subject_text.set("Reminder: Peer Evaluation due")
-                self.message.insert(tkinter.END, "Dear [First Name],\n\nThis is a courtesy reminder to complete the Peer Evaluation survey. According to our records, you have not yet completed this survey.\n\nYou may access the survey via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.")            
+                self.subject_text.set(config["subject_reminder"])
+                self.message.insert(tkinter.END, config["message_reminder"])            
             if self.window_sendto.current() == 2:
-                self.subject_text.set("Thank you for completing the Peer Evaluation")
-                self.message.insert(tkinter.END, "Dear [First Name],\n\nThank you for completing the Peer Evaluation. There is no need to take any further action.")
+                self.subject_text.set(config["subject_thankyou"])
+                self.message.insert(tkinter.END, config["message_thankyou"])
                 
     def MessageSend(self):
         # Filter participants if requested
@@ -1230,17 +1283,6 @@ def BulkMail_call():
     bm = BulkMail()
 
 #%% Main Menu
-# Load up the configuration file
-session = {}
-try:
-    f = open("config.txt", "r")
-    config = json.loads(f.read())
-    f.close()
-except:
-    config = {}
-    RestoreDefaults()
-    
-    
 class MainMenu:
     def __init__(self):
         self.window = tkinter.Tk()
@@ -1271,5 +1313,7 @@ class MainMenu:
             self.button_bulk["state"] = 'normal'
             self.button_pm["state"] ='normal'
 
+temp_data = {}
 canvas = None
 mm = MainMenu()
+
