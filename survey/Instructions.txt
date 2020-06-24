@@ -1,0 +1,34 @@
+Uploading the template to Qualtrics
+--
+
+1. Sign into Qualtrics using your credentials.
+2. Click on the "Create new project" button.
+3. Click on "Survey".
+4. Click on "From a File".
+5. Choose the "Peer_Evaluation_Qualtrics_Template.qsf" using the file picker.
+
+A new survey will be created from the template.
+
+
+
+Creating a new Contacts list
+--
+1. In Qualtrics, click on "Contacts".
+2. Click the "+ Create Contact List" button.
+3. Create a name for the new contact list (e.g., 2020 Sem 1: Human Resource Management)
+4. Under "Import From a File", choose the Contacts.csv file createed by PEER (from the
+"Create Contacts list from group membership" option.
+
+
+
+Creating a distribution list (to send out unique survey links using PEER)
+--
+1. Go to your survey and click on "Distributions".
+2. Choose the option "Personal Links".
+3. Under the "Generate Links" box, click on "Select Contacts".
+4. Under the "My Library" dropdown, and choose the Contacts list you imported.
+5. Click on the "Select Entire Contact List" option.
+6. Click "Generate Links".
+
+A .CSV file will download on to your computer. Use this file in the "Send survey 
+invitations from distribution list" feature of PEER.
