@@ -1,17 +1,14 @@
 # -*- coding: utf-8 -*-
 
-updates = """
-Version 0.1.0 (2020-02-22): Default bulk messages are now editable in the 'default.txt' and 'config.txt' files.
-Version 0.0.5 (2020-02-21): Fixed code to automatically hide grades from the students. In the SaveData file, the rater appears before the receiver.
-Version 0.0.4 (2020-02-20): Only weekdays are now counted when calculating late penalties.
-Version 0.0.3: Fixed a bug that caused the program to crash if there was an empty group (under "Export Groups").
-Version 0.0.2: Fixed bug with repeated "other" list, and made the uploading of marks more robust.
-Version 0.0.1: Fixed bug, regarding "PointsPossible" property of the "config" dictionary
+try:
+    f = open("Version History.txt", "r")
+    updates = f.read()
+    f.close()
+    print(updates)
+except:
+    print("Unable to locate Version History.")
 
-(C) Tim Bednall 2019-2020."""
-
-print("Loading Peer Evaluation Enhancement Resource (PEER)...\n\nVersion history:")
-print(updates)
+print("\n(C) Tim Bednall 2019-2020.")
 
 import tkinter
 from tkinter import ttk
@@ -27,6 +24,8 @@ from datetime import datetime, timedelta
 import time
 import os
 import requests
+import sys
+import subprocess
 
 #%% Global functions and variables
 
@@ -67,6 +66,13 @@ def replace_multiple(str_text, rep_list, str_rep = ""):
     for item in rep_list: str_text = str_text.replace(str(item), str_rep)
     return(str_text)
 
+def save_config():
+    try:
+        f = open("config.txt", "w")
+        f.write(json.dumps(config, sort_keys=True, separators=(',\n', ':')))
+        f.close()   
+    except:
+        print("Unabled to save configuration file (config.txt).")
 
 # Load the configuration file
 # First of all, load the hard defaults
@@ -76,7 +82,7 @@ hard_defaults = {
     'EmailSuffix': "",
     'ScoreType': 2,
     'SelfVote': 2,
-    'AdjustedMark_Name': "Peer Mark",
+    'PeerMark_Name': "Peer Mark",
     'MinimumPeers': 2,
     'Penalty_NonComplete': 100,
     'Penalty_PartialComplete': 0,
@@ -90,10 +96,12 @@ hard_defaults = {
     'SaveWide': 0,
     'PointsPossible': 5,
     'RescaleTo': 5,
+    'publish_assignment': True,
+    'weekdays_only': True,
     'subject_confirm': "Confirming Group Membership",
-    'message_confirm': "Dear all,\n\nI am writing to confirm your membership in: [Group Name].\n\nAccording to our records, the members of this group include:\n[Group Members]\nIf there are any errors in our records -- such as missing group members or people listed who are not in your group -- please contact me as soon as possible. You may ignore this message if these records are correct.",
+    'message_confirm': "Dear [firstnames_list],\n\nI am writing to confirm your membership in: [name].\n\nAccording to our records, the members of this group include:\n\n[members_bulletlist]\n\nIf there are any errors in our records -- such as missing group members or people incorrectly listed as group members -- please contact me as soon as possible. You may ignore this message if these records are correct.\n\nWe encourage you to visit your group's homepage, a platform where you can collaborate with your fellow members. Your group's homepage is located at: [group_homepage]",
     'subject_nogroup' : "Lack of Group Membership",
-    'message_nogroup' : "Dear [First Name],\n\nI am writing because according to our records, you are not currently listed as a member of any student team for this unit.\n\nAs you would be aware, there is a group assignment due later in the semester. If you do not belong to a team, you will be unable to complete the assignment.\n\nIf there is another circumstance that would prevent you from joining a group project, please let me know as soon as possible.\n\nPlease let me know if there is anything I can do to support you in the meantime.",
+    'message_nogroup' : "Dear [first_name],\n\nI am writing because according to our records, you are not currently listed as a member of any student team for this unit.\n\nAs you would be aware, there is a group assignment due later in the semester. If you do not belong to a team, you will be unable to complete the assignment.\n\nIf there is another circumstance that would prevent you from joining a group project, please let me know as soon as possible.\n\nPlease let me know if there is anything I can do to support you in the meantime.",
     'subject_invitation': "Peer Evaluation now available",
     'message_invitation': "Dear [First Name],\n\nThe Peer Evaluation survey is now available.\n\nYou may access it via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.",
     'subject_reminder': "Reminder: Peer Evaluation due",
@@ -120,6 +128,17 @@ try:
     for item in user_config: config[item] = user_config[item]
 except:
     print("Creating user configuration file from defaults...")
+
+# Overwrite the user's configuration with any updates
+try:
+    f = open("update.txt", "r")
+    user_config = json.loads(f.read())
+    f.close()
+    for item in user_config: config[item] = user_config[item]
+    os.remove("update.txt")
+    save_config()
+except:
+    pass
 
 session = {}
 
@@ -313,7 +332,7 @@ def penalty(ID):
         if PartialComplete(ID): pen = pen - (config["Penalty_PartialComplete"]/100)
         if SelfPerfect(ID): pen = pen - (config["Penalty_SelfPerfect"]/100)
         if PeersAllZero(ID): pen = pen - (config["Penalty_PeersAllZero"]/100)
-        if days_late(ID) > 0: pen = pen - (config["Penalty_PerDayLate"]/100)*days_late(ID)
+        if days_late(ID, config["weekdays_only"]) > 0: pen = pen - (config["Penalty_PerDayLate"]/100)*days_late(ID, config["weekdays_only"])
     return(max(pen,0))
 
 def adj_score(ID, apply_penalty = True):
@@ -363,7 +382,7 @@ def comments(ID):
         if PartialComplete(ID) == True and config["Penalty_PartialComplete"] > 0: penalty_text = penalty_text + "-" + str(config["Penalty_PartialComplete"]) + "% because you only partially completed the Peer Evaluation survey.\n"
         if SelfPerfect(ID) == True and config["Penalty_SelfPerfect"] > 0: penalty_text = penalty_text + "-" + str(config["Penalty_SelfPerfect"]) + "% because you assigned yourself a perfect score on the Peer Evaluation survey across all questions.\n"
         if PeersAllZero(ID) == True and config["Penalty_PeersAllZero"] > 0: penalty_text = penalty_text + "-" + str(config["Penalty_PeersAllZero"]) + "% because you gave all of your peers the bottom score on the Peer Evaluation survey across all questions.\n"
-        if days_late(ID) > 0 and config["Penalty_PerDayLate"] > 0: penalty_text = penalty_text + "-" + str(config["Penalty_PerDayLate"] * days_late(ID)) + "% because you submitted your evaluation " + str(days_late(ID)) + " day(s) late.\n"
+        if days_late(ID, config["weekdays_only"]) > 0 and config["Penalty_PerDayLate"] > 0: penalty_text = penalty_text + "-" + str(config["Penalty_PerDayLate"] * days_late(ID, config["weekdays_only"])) + "% because you submitted your evaluation " + str(days_late(ID, config["weekdays_only"])) + " day(s) late.\n"
     if len(penalty_text) > 0: comment = comment + "The following penalties have been subtracted from your Peer Mark:\n" + penalty_text
     if n_ratings(ID) < config["MinimumPeers"]: return(comment)
     comment = ""
@@ -418,10 +437,205 @@ def comments(ID):
             comment = comment + "Your initial mark was therefore not adjusted.\n\n"
     if len(penalty_text) > 0: comment = comment + "Your Peer Mark has received the following penalties:\n" + penalty_text
     return(comment)
+
+def cleanupURL(URL):
+    URL = URL.strip().lower()
+    if URL[-1] != "/": URL += "/"
+    URL = URL.replace('http:', 'https:')
+    return(URL)
+
+#%% GraphQL
+class GraphQL():
+    def __init__(self, course_id = 0, groupset_id = 0):
+        self.course_id = course_id
+        self.groupset_id = groupset_id
+        self.cache = {}
+    
+    def query(self, query_text):
+        global mm
+        query = {'access_token': config["API_TOKEN"], 'query': query_text}
+        for attempt in range(5):
+            try:
+                result = requests.post(url = "{}api/graphql".format(config["API_URL"]), data = query).json()
+            except:
+                print("Trying to connect to Canvas via GraphQL. Attempt {} of 5.".format(attempt+1))
+            else:
+                return(result)
+        messagebox.showinfo("Error", "Cannot connect to Canvas via GraphQL. There may be an Internet connectivity problem.")
+        mm.master.destroy()
+        sys.exit()
+    
+    def courses(self):
+        if "courses" in self.cache: return(self.cache["courses"])
+        temp = self.query('query MyQuery {allCourses {_id\nname}}')["data"]["allCourses"]
+        temp2 = {}
+        for course in temp:
+            temp2[int(course["_id"])] = {}
+            temp2[int(course["_id"])]["name"] = course["name"]
+        df = {}
+        for a in sorted(temp2.keys(), reverse = True):
+            df[str(a)] = temp2[a]
+        self.cache["courses"] = df
+        return(df)
+
+    def group_sets(self):
+        if "groupset_" + str(self.course_id) not in self.cache:
+            self.cache["groupset_" + str(self.course_id)] = self.query('query MyQuery {course(id:"' + str(self.course_id) + '") {groupSetsConnection {nodes {_id\nname}}}}')["data"]["course"]["groupSetsConnection"]["nodes"]
+        return(self.cache["groupset_" + str(self.course_id)])
+
+    def sections(self):
+        if "sections_" + str(self.course_id) not in self.cache:
+            query_result = self.query('query MyQuery {course(id: "' + str(self.course_id) + '") {sectionsConnection {nodes {_id\nname}}}}')["data"]["course"]["sectionsConnection"]["nodes"]
+            self.cache["sections_" + str(self.course_id)] = {}
+            for section in query_result:
+                self.cache["sections_" + str(self.course_id)][section["_id"]] = {}
+                self.cache["sections_" + str(self.course_id)][section["_id"]]["name"] = section["name"]
+        return(self.cache["sections_" + str(self.course_id)])
+    
+    def students(self):
+        if "students_" + str(self.course_id) not in self.cache:
+            query_result = self.query('query MyQuery {course(id: "' + str(self.course_id) + '") {enrollmentsConnection {nodes {type\nuser {_id\nname\nemail}}}}}')
+            self.cache["students_" + str(self.course_id)] = {"id": [], "name": [], "email": []}
+            for student in query_result["data"]["course"]["enrollmentsConnection"]["nodes"]:
+                if (student["type"] == "StudentEnrollment"):
+                    if (student["user"]["_id"] not in self.cache["students_" + str(self.course_id)]["id"]):
+                        self.cache["students_" + str(self.course_id)]["id"].append(student["user"]["_id"])
+                        self.cache["students_" + str(self.course_id)]["name"].append(student["user"]["name"])
+                        self.cache["students_" + str(self.course_id)]["email"].append(student["user"]["email"])
+        return(self.cache["students_" + str(self.course_id)])
+    
+    def groups(self):
+        if "groups_" + str(self.course_id) in self.cache: return(self.cache["groups_" + str(self.course_id)])
+        query_result = self.query('query MyQuery {course(id: "' + str(self.course_id) + '") {groupSetsConnection {nodes {_id\ngroupsConnection {nodes {_id\nname\nmembersConnection {nodes {user {_id\nname}}}}}}}}}')
+        try:
+            for groupset in query_result["data"]["course"]["groupSetsConnection"]["nodes"]:
+                if (groupset["_id"]==str(self.groupset_id)):
+                    temp = groupset["groupsConnection"]["nodes"]
+                    df = {}
+                    for group in temp:
+                        df[group["_id"]] = {"name": group["name"], "users": []}
+                        for user in group["membersConnection"]["nodes"]:
+                            df[group["_id"]]["users"].append(user["user"]["_id"])
+                    self.cache["groups_" + str(self.course_id)] = df
+                    return(df)
+                    break
+        except:
+            return({})
+        return({})
+    
+    def students_comprehensive(self):
+        if "students_" + str(self.course_id) + "_" + str(self.groupset_id) in self.cache:
+            return(self.cache["students_" + str(self.course_id) + "_" + str(self.groupset_id)])
+        query_result = self.query('query MyQuery {course(id: "' + str(self.course_id) + '") {enrollmentsConnection {nodes {type\nuser {_id\nname\nemail}\nsection {_id}}}}}')["data"]["course"]["enrollmentsConnection"]["nodes"]
+        student_series = {}
+        # Set up dictionary for students
+        for student in query_result:
+            if (student["type"] == "StudentEnrollment"):
+                if (student["user"]["_id"] not in student_series):
+                    student_series[student["user"]["_id"]] = {"name": student["user"]["name"], "email": student["user"]["email"]}
+                    student_series[student["user"]["_id"]]["first_name"] = student["user"]["name"][0:student["user"]["name"].find(" ")]
+                    student_series[student["user"]["_id"]]["last_name"] = student["user"]["name"][student["user"]["name"].rfind(" ")+1:]
+                    student_series[student["user"]["_id"]]["sections"] = []
+                student_series[student["user"]["_id"]]["sections"].append(student["section"]["_id"])
+        
+        # Identify which group the student is in
+        groups = self.groups()
+        def find_group(student, groups):
+            for group in groups:
+                for member in groups[group]["users"]:
+                    if (student == member):
+                        return(group)
+            return("0")
+        for student in student_series:
+            group = find_group(student, groups)
+            if (group != "0"):
+                student_series[student]["group_id"] = group
+                student_series[student]["group_name"] = groups[group]["name"]
+            
+        # Find the students' peers (if they are in a group)
+        for student in student_series:
+            if ("group_id" in student_series[student]):
+                student_series[student]["peers"] = []
+                for member in groups[student_series[student]["group_id"]]["users"]:
+                    if (member != student):
+                        student_series[student]["peers"].append(member)
+                
+        self.cache["students_" + str(self.course_id) + "_" + str(self.groupset_id)] = student_series                
+        return(student_series)
+
+    def teachers_comprehensive(self):
+        if "teachers_" + str(self.course_id) in self.cache:
+            return(self.cache["teachers_" + str(self.course_id)])
+        query_result = self.query('query MyQuery {course(id: "' + str(self.course_id) + '") {enrollmentsConnection {nodes {type\nuser {_id\nname\nemail}\nsection {_id}}}}}')["data"]["course"]["enrollmentsConnection"]["nodes"]
+        teacher_series = {}
+        # Set up dictionary for teachers
+        for teacher in query_result:
+            if (teacher["type"] == "TeacherEnrollment"):
+                if (teacher["user"]["_id"] not in teacher_series):
+                    teacher_series[teacher["user"]["_id"]] = {"name": teacher["user"]["name"], "email": teacher["user"]["email"]}
+                    teacher_series[teacher["user"]["_id"]]["first_name"] = teacher["user"]["name"][0:teacher["user"]["name"].find(" ")]
+                    teacher_series[teacher["user"]["_id"]]["last_name"] = teacher["user"]["name"][teacher["user"]["name"].rfind(" ")+1:]
+                    teacher_series[teacher["user"]["_id"]]["sections"] = []
+                teacher_series[teacher["user"]["_id"]]["sections"].append(teacher["section"]["_id"])
+                
+        self.cache["teachers_" + str(self.course_id) + "_" + str(self.groupset_id)] = teacher_series                
+        return(teacher_series)
+        
+        
+#%% Tool Tips
+class ToolTip(object):
+# From: https://stackoverflow.com/questions/20399243/display-message-when-hovering-over-something-with-mouse-cursor-in-python
+    
+    def __init__(self, widget):
+        self.widget = widget
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+
+    def showtip(self, text):
+        "Display text in tooltip window"
+        self.text = text
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 57
+        y = y + cy + self.widget.winfo_rooty() +27
+        self.tipwindow = tw = tkinter.Toplevel(self.widget)
+        tw.wm_overrideredirect(1)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = tkinter.Label(tw, text=self.text, justify=tkinter.LEFT,
+                      background="#ffffe0", relief=tkinter.SOLID, borderwidth=1,
+                      font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+def CreateToolTip(widget, text):
+    toolTip = ToolTip(widget)
+    def enter(event):
+        toolTip.showtip(text)
+    def leave(event):
+        toolTip.hidetip()
+    widget.bind('<Enter>', enter)
+    widget.bind('<Leave>', leave)
+
 #%% Settings
     
 class Settings:
     def __init__(self, window):
+        # Again, try to load the configuration file and overwrite defaults
+        try:
+            f = open("config.txt", "r")
+            user_config = json.loads(f.read())
+            f.close()
+            for item in user_config: config[item] = user_config[item]
+        except:
+            pass
+        
         self.window = window
         window.title("Settings")
         window.resizable(0, 0)
@@ -435,22 +649,29 @@ class Settings:
         tkinter.Label(window, text = "Token:", fg = "black").grid(row = 3, column = 0, sticky = "E")
         self.settings_Token = tkinter.Entry(window, width = 80)
         self.settings_Token.grid(row = 3, column = 1, sticky="W", padx = 5)
-        tkinter.Label(window, text = "\nPlease enter the student email suffix:", fg = "black").grid(row = 4, column = 1, sticky = "W")
-        tkinter.Label(window, text = "Suffix:", fg = "black").grid(row = 5, column = 0, sticky = "E")
-        self.settings_suffix = tkinter.Entry(window, width = 50)
-        self.settings_suffix.grid(row = 5, column = 1, sticky="W", padx = 5)
+        
+        #tkinter.Label(window, text = "\nPlease enter the student email suffix:", fg = "black").grid(row = 4, column = 1, sticky = "W")
+        #tkinter.Label(window, text = "Suffix:", fg = "black").grid(row = 5, column = 0, sticky = "E")
+        #self.settings_suffix = tkinter.Entry(window, width = 50)
+        #self.settings_suffix.grid(row = 5, column = 1, sticky="W", padx = 5)
+        
         tkinter.Label(window, text = "You will only need to enter these settings once.", fg = "black").grid(row = 6, columnspan = 2)
-        self.settings_default = tkinter.Button(window, text = "Restore Default Settings", fg = "black", command = self.restore_defaults).grid(row = 7, columnspan = 2, pady = 5)
-        self.settings_save = tkinter.Button(window, text = "Save Settings", fg = "black", command = self.save_settings).grid(row = 8, columnspan = 2, pady = 5)
+        self.settings_openfolder = tkinter.Button(window, text = "Open App Folder", fg = "black", command = self.open_folder).grid(row = 7, columnspan = 2, pady = 5)
+        self.settings_default = tkinter.Button(window, text = "Restore Default Settings", fg = "black", command = self.restore_defaults).grid(row = 8, columnspan = 2, pady = 5)
+        self.settings_save = tkinter.Button(window, text = "Save Settings", fg = "black", command = self.save_settings).grid(row = 9, columnspan = 2, pady = 5)
         self.update_fields()
+
+    def open_folder(self):
+        subprocess.Popen(['explorer', os.path.abspath(os.path.dirname(sys.argv[0]))])
+        self.window.destroy()
 
     def update_fields(self):
         self.settings_URL.delete(0, tkinter.END)
         self.settings_URL.insert(0, config["API_URL"])
         self.settings_Token.delete(0, tkinter.END)
         self.settings_Token.insert(0, config["API_TOKEN"])
-        self.settings_suffix.delete(0, tkinter.END)
-        self.settings_suffix.insert(0, config["EmailSuffix"])
+        #self.settings_suffix.delete(0, tkinter.END)
+        #self.settings_suffix.insert(0, config["EmailSuffix"])
         
     def restore_defaults(self):
         global config
@@ -459,60 +680,59 @@ class Settings:
         self.update_fields()
         
     def save_settings(self):
-        config["API_URL"] = self.settings_URL.get()
-        config["API_TOKEN"] = self.settings_Token.get()
-        config["EmailSuffix"] = self.settings_suffix.get()
-        f = open("config.txt", "w")
-        f.write(json.dumps(config, sort_keys=True, separators=(',\n', ':')))
-        f.close()
+        config["API_URL"] = cleanupURL(self.settings_URL.get())
+        config["API_TOKEN"] = self.settings_Token.get().strip()
+        save_config()
         self.window.destroy()
 
 def Settings_call():
     settings_win = tkinter.Toplevel()
     set_win = Settings(settings_win)
-    settings_win.mainloop()
 
 #%% Export Groups
 class ExportGroups():
-    def __init__(self, exportgroups):
-        self.exportgroups = exportgroups
-        exportgroups.title("Export Groups")
-        exportgroups.resizable(0, 0)
-        exportgroups.grab_set()
+    def __init__(self, master, preset = ""):
+        self.preset = preset
+        self.master = master
+        self.exportgroups = tkinter.Frame(self.master)
+        self.exportgroups.pack()
         
-        tkinter.Label(exportgroups, text = "\nDownload student groups and group membership", fg = "black").grid(row = 0, column = 0, columnspan = 2)
-        tkinter.Label(exportgroups, text = "Unit:", fg = "black").grid(row = 1, column = 0, sticky = "E", pady = 5)           
-        self.exportgroups_unit = ttk.Combobox(exportgroups, width = 60, values = [], state="readonly")
+        if preset=="classlist":
+            self.master.title("Download Class List")
+            tkinter.Label(self.exportgroups, text = "\nDownload list of students and teachers", fg = "black").grid(row = 0, column = 0, columnspan = 2)            
+        else:
+            self.master.title("Create Contact List")
+            tkinter.Label(self.exportgroups, text = "\nDownload student groups and group membership", fg = "black").grid(row = 0, column = 0, columnspan = 2)            
+
+        self.master.resizable(0, 0)
+        self.master.grab_set()
+
+        tkinter.Label(self.exportgroups, text = "Unit:", fg = "black").grid(row = 1, column = 0, sticky = "E", pady = 5)           
+        self.exportgroups_unit = ttk.Combobox(self.exportgroups, width = 60, values = [], state="readonly")
         self.exportgroups_unit.bind("<<ComboboxSelected>>", self.group_sets)
         self.exportgroups_unit.grid(row = 1, column = 1, sticky = "W", padx = 5)
 
-        tkinter.Label(exportgroups, text = "Group Set:", fg = "black").grid(row = 2, column = 0, sticky = "E", pady = 5)
-        self.exportgroups_groupset = ttk.Combobox(exportgroups, width = 60, state="readonly")
+        tkinter.Label(self.exportgroups, text = "Group Set:", fg = "black").grid(row = 2, column = 0, sticky = "E", pady = 5)
+        self.exportgroups_groupset = ttk.Combobox(self.exportgroups, width = 60, state="readonly")
         self.exportgroups_groupset.grid(row = 2, column = 1, sticky = "W", padx = 5)
 
-        tkinter.Label(exportgroups, text = "Confirmation:", fg = "black").grid(row = 3, column = 0, sticky = "E", pady = 5)
-        self.contactgroups = tkinter.BooleanVar()
-        self.contactgroups.set(False)
-        self.exportgroups_contact = tkinter.Checkbutton(exportgroups, variable = self.contactgroups, text = "Automatically contact students via Canvas to confirm group membership")
-        self.exportgroups_contact.grid(row = 3, column = 1, sticky = "W")
+        #tkinter.Label(self.exportgroups, text = "Confirmation:", fg = "black").grid(row = 3, column = 0, sticky = "E", pady = 5)
+        #self.contactgroups = tkinter.BooleanVar()
+        #self.contactgroups.set(False)
+        #self.exportgroups_contact = tkinter.Checkbutton(self.exportgroups, variable = self.contactgroups, text = "Automatically contact students via Canvas to confirm group membership")
+        #self.exportgroups_contact.grid(row = 3, column = 1, sticky = "W")
         
-        self.exportgroups_export = tkinter.Button(exportgroups, text = "Download Groups", fg = "black", command = self.begin_export)
+        self.exportgroups_export = tkinter.Button(self.exportgroups, text = "Start Download", fg = "black", command = self.begin_export)
         self.exportgroups_export.grid(row = 4, columnspan = 2, pady = 5)
 
         self.group_sets_id = []
         self.group_sets_name = []          
         
-        if "courses" not in session:
-            session["courses"] = []
-            session["course_ids"] = []
-            for course in canvas.get_courses():
-                session["courses"].append(course.name)
-                session["course_ids"].append(course.id)
-        self.exportgroups_unit["values"] = tuple(session["courses"])
+        self.exportgroups_unit["values"] = tuple(session["course.names"])
         self.exportgroups_unit.current(0)
         self.group_sets()
         
-        self.statusbar = tkinter.Label(exportgroups, text="", bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W)
+        self.statusbar = tkinter.Label(self.exportgroups, text="", bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W)
         self.statusbar.grid(row = 5, columnspan = 2, sticky = "ew")
         
         self.status("")
@@ -520,13 +740,16 @@ class ExportGroups():
     def group_sets(self, event_type = ""):
         self.group_sets_id = []
         self.group_sets_name = []
-        course = canvas.get_course(session["course_ids"][self.exportgroups_unit.current()])
-        group_categories = course.get_group_categories()
-        for group_set in group_categories:
-            self.group_sets_id.append(group_set.id)
-            self.group_sets_name.append(group_set.name)
-        self.exportgroups_groupset["values"] = tuple(self.group_sets_name)
-        self.exportgroups_groupset.current(0)
+        GQL.course_id = session["course.ids"][self.exportgroups_unit.current()]
+        for group_set in GQL.group_sets():
+            self.group_sets_id.append(group_set["_id"])
+            self.group_sets_name.append(group_set["name"])
+        if len(self.group_sets_id) > 0:
+            self.exportgroups_groupset["values"] = tuple(self.group_sets_name)
+            self.exportgroups_groupset.current(0)
+        else:
+            self.exportgroups_groupset["values"] = ()
+            self.exportgroups_groupset.set('')
     
     def status(self, text): 
         self.statusbar["text"] = text
@@ -534,161 +757,146 @@ class ExportGroups():
     
     def begin_export(self, event_type = ""):
         foldername = ""
-        foldername = tkinter.filedialog.askdirectory(title = "Choose Folder to Save Group Membership Information...")
-        
-        course = canvas.get_course(session["course_ids"][self.exportgroups_unit.current()])
-        group_set = self.group_sets_id[self.exportgroups_groupset.current()]
-        print("Accessing " + course.name + "...")
-        
-        users = course.get_users(enrollment_type=['student'])
-        user_list = {"Email":[],
-                     "ExternalDataReference":[],
-                     "FirstName":[],
-                     "LastName":[],
-                     "Student_name":[],
-                     "Group_name":[],
-                     "Peer1_name":[],
-                     "Peer2_name":[],
-                     "Peer3_name":[],
-                     "Peer4_name":[],
-                     "Peer5_name":[],
-                     "Peer6_name":[],
-                     "Peer7_name":[],
-                     "Peer8_name":[],
-                     "Peer9_name":[],
-                     "Student_id":[],
-                     "Group_id":[],
-                     "Peer1_id":[],
-                     "Peer2_id":[],
-                     "Peer3_id":[],
-                     "Peer4_id":[],
-                     "Peer5_id":[],
-                     "Peer6_id":[],
-                     "Peer7_id":[],
-                     "Peer8_id":[],
-                     "Peer9_id":[],
-                     }
-        
-        print("Downloading student details...")
-        for user in users:
-            print("> " + user.name)
-            if config["EmailSuffix"] != np.nan and config["EmailSuffix"] != "":
-                user_list["Email"].append(str(user.sis_user_id) + config["EmailSuffix"])
-            else:
-                user_list["Email"].append("")
-            user_list["ExternalDataReference"].append(user.id)
-            user_list["FirstName"].append(user.name[0:user.name.find(" ")])
-            user_list["LastName"].append(user.name[user.name.rfind(" ")+1:])
-            user_list["Student_name"].append(user.name)
-            user_list["Group_name"].append(np.NaN)
-            user_list["Peer1_name"].append(np.NaN)
-            user_list["Peer2_name"].append(np.NaN)
-            user_list["Peer3_name"].append(np.NaN)
-            user_list["Peer4_name"].append(np.NaN)
-            user_list["Peer5_name"].append(np.NaN)
-            user_list["Peer6_name"].append(np.NaN)
-            user_list["Peer7_name"].append(np.NaN)
-            user_list["Peer8_name"].append(np.NaN)
-            user_list["Peer9_name"].append(np.NaN)
-            user_list["Student_id"].append(user.id)   
-            user_list["Group_id"].append(np.NaN)
-            user_list["Peer1_id"].append(np.NaN)
-            user_list["Peer2_id"].append(np.NaN)
-            user_list["Peer3_id"].append(np.NaN)
-            user_list["Peer4_id"].append(np.NaN)
-            user_list["Peer5_id"].append(np.NaN)
-            user_list["Peer6_id"].append(np.NaN)
-            user_list["Peer7_id"].append(np.NaN)
-            user_list["Peer8_id"].append(np.NaN)
-            user_list["Peer9_id"].append(np.NaN)
-        
-        user_list = pd.DataFrame(user_list)
-        
-        groups = course.get_groups()
-        group_list = {"Group_name":[], "Group_id":[], "Student_id": []}
-        print("Downloading group information...")
-        for a, group in enumerate(groups):
-            if group.group_category_id == group_set:
-                print("Found group: " + group.name)
-                group_list["Group_name"].append(clean_text(str(group.name)))
-                group_list["Group_id"].append(group.id)
-                group_members = group.get_users()
-                group_list["Student_id"].append([])
-                for group_member in group_members:
-                    group_list["Student_id"][a].append(group_member.id)
-        
-        # Write CSV of group members
-        print("Creating list of students and their group peers...")
-        for a in range(0, len(group_list["Group_id"])):
-            for group_member in group_list["Student_id"][a]:
-                user_list.loc[user_list["Student_id"] == group_member, "Group_name"] = group_list["Group_name"][a]
-                user_list.loc[user_list["Student_id"] == group_member, "Group_id"] = group_list["Group_id"][a]
-              
-        for user_id in user_list.loc[np.isnan(user_list["Group_id"]) == False, "Student_id"]:
-            group_id = user_list.loc[user_list["Student_id"]==user_id, "Group_id"].values[0]
-            a = group_list["Group_id"].index(group_id)
-            counter = 1
-            for group_mem in group_list["Student_id"][a]:
-                if group_mem != user_id:
-                    user_list.loc[user_list["Student_id"]==user_id, "Peer" + str(counter) + "_id"] = group_mem
-                    user_list.loc[user_list["Student_id"]==user_id, "Peer" + str(counter) + "_name"] = user_list.loc[user_list["Student_id"]==group_mem, "Student_name"].values[0]
-                    counter = counter + 1
-        
-        
-        user_list.loc[np.isnan(user_list["Group_id"]) == False].to_csv(os.path.join(foldername,"GroupMembers.csv"), index = False)
-        
-        # Write CSV of students lacking groups
-        print("Creating list of students without groups...")
-        user_list.loc[np.isnan(user_list["Group_id"]), ["Email", "ExternalDataReference", "FirstName", "Student_id", "Student_name"]].to_csv(os.path.join(foldername,"NoGroups.csv"), index = False)
+        foldername = tkinter.filedialog.askdirectory(title = "Choose Folder to Save Files...")                
+        GQL.course_id = session["course.ids"][self.exportgroups_unit.current()]
+        if self.exportgroups_groupset.current() >= 0:
+            GQL.groupset_id = self.group_sets_id[self.exportgroups_groupset.current()]
+            session["group_set"] = self.group_sets_id[self.exportgroups_groupset.current()]    
+        session["course.id"] = session["course.ids"][self.exportgroups_unit.current()]
+        session["course.name"] = session["course.names"][self.exportgroups_unit.current()]
+        print("Accessing " + session["course.name"] + "...")        
+        students = GQL.students_comprehensive()
+        print("Found {} students...".format(len(students)))
 
-        info_text = "Group membership details were saved in \"GroupMembers.csv\" and a list of students without groups has been saved in \"NoGroups.csv\"."
+        if self.preset=="classlist":
+            sections = GQL.sections()
+            teachers = GQL.teachers_comprehensive()
+            print("Found {} teachers...".format(len(teachers)))
+            
+            student_list = {"id": [],
+                         "name":[],
+                         "first_name":[],
+                         "last_name":[],
+                         "email":[],
+                         "group_name":[]}
+            
+            teacher_list = {"id": [],
+                         "name":[],
+                         "first_name":[],
+                         "last_name":[],
+                         "email":[]}
+            
+            for section in sections:
+                student_list[sections[section]["name"]] = []
+                teacher_list[sections[section]["name"]] = []
+            for student in students:
+                student_list["id"].append(student)
+                student_list["name"].append(students[student]["name"])
+                student_list["first_name"].append(students[student]["first_name"])
+                student_list["last_name"].append(students[student]["last_name"])
+                student_list["email"].append(students[student]["email"])
+                if "group_name" in students[student]:
+                    student_list["group_name"].append(students[student]["group_name"])
+                else:
+                    student_list["group_name"].append("")
+                for section in sections:
+                    if section in students[student]["sections"]:
+                        student_list[sections[section]["name"]].append(True)
+                    else:
+                        student_list[sections[section]["name"]].append(False)
+            
+            for teacher in teachers:
+                teacher_list["id"].append(teacher)
+                teacher_list["name"].append(teachers[teacher]["name"])
+                teacher_list["first_name"].append(teachers[teacher]["first_name"])
+                teacher_list["last_name"].append(teachers[teacher]["last_name"])
+                teacher_list["email"].append(teachers[teacher]["email"])                
+                for section in sections:
+                    if section in teachers[teacher]["sections"]:
+                        teacher_list[sections[section]["name"]].append(True)
+                    else:
+                        teacher_list[sections[section]["name"]].append(False)
+            
+            student_list = pd.DataFrame(student_list)
+            teacher_list = pd.DataFrame(teacher_list)
+            
+            with pd.ExcelWriter(os.path.join(foldername, session["course.names"][self.exportgroups_unit.current()] + ".xlsx")) as writer:
+                student_list.to_excel(writer, sheet_name='Student List', index = False)
+                teacher_list.to_excel(writer, sheet_name='Teacher List', index = False)
+            
+            messagebox.showinfo("Download complete.", "Student list saved as \"{}.xlsx\".".format(session["course.names"][self.exportgroups_unit.current()]))
+            
+        else:
+            student_list = {"ExternalDataReference":[],
+                            "Student_name":[],
+                            "FirstName":[],
+                            "LastName":[],
+                            "Email":[],
+                            "Group_id":[], "Group_name":[],
+                            "Peer1_id":[], "Peer1_name":[],
+                            "Peer2_id":[], "Peer2_name":[],
+                            "Peer3_id":[], "Peer3_name":[],
+                            "Peer4_id":[], "Peer4_name":[],
+                            "Peer5_id":[], "Peer5_name":[],
+                            "Peer6_id":[], "Peer6_name":[],
+                            "Peer7_id":[], "Peer7_name":[],
+                            "Peer8_id":[], "Peer8_name":[],
+                            "Peer9_id":[], "Peer9_name":[]}
+            
+            print("Processing student details...")
+            for student in students:
+                student_list["ExternalDataReference"].append(student)
+                student_list["Student_name"].append(students[student]["name"])
+                student_list["FirstName"].append(students[student]["first_name"])
+                student_list["LastName"].append(students[student]["last_name"])
+                student_list["Email"].append(students[student]["email"])
+                if ("group_id" in students[student]):
+                    print("> {}: {}".format(students[student]["name"], students[student]["group_name"]))
+                    student_list["Group_id"].append(students[student]["group_id"])            
+                    student_list["Group_name"].append(students[student]["group_name"])
+                    for j, peer in enumerate(students[student]["peers"],1):
+                        student_list["Peer" + str(j) + "_id"].append(peer)
+                        student_list["Peer" + str(j) + "_name"].append(students[peer]["name"])
+                else:
+                    print("> {}: No group found".format(students[student]["name"]))
+                    student_list["Group_id"].append(np.nan)            
+                    student_list["Group_name"].append(np.nan)
+                    j = 0
+                for k in range(j+1, 10):
+                    student_list["Peer" + str(k) + "_id"].append(np.nan)
+                    student_list["Peer" + str(k) + "_name"].append(np.nan)
+                            
+            # Write CSV of group members
+            print("Creating Contacts file to be uploaded to Qualtrics")
+            student_list = pd.DataFrame(student_list)
+            student_list.loc[pd.isnull(student_list["Group_id"]) == False].to_csv(os.path.join(foldername,"Contacts.csv"), index = False)
+            
+            # Write CSV of students lacking groups
+            print("Creating list of students without groups...")
+            student_list.loc[pd.isnull(student_list["Group_id"]), ["Email", "ExternalDataReference", "FirstName", "Student_name"]].to_csv(os.path.join(foldername,"NoGroups.csv"), index = False)
+            messagebox.showinfo("Download complete.", "Qualtrics Contact file saved as \"Contacts.csv\" and a list of students without groups has been saved in \"NoGroups.csv\".")
         
-        if self.contactgroups.get():
-            print("Sending confirmation message to groups via Canvas...")
-            for a in range(0, len(group_list["Group_id"])):
-                conf_message = config["message_confirm"].replace("[Group Name]", group_list["Group_name"][a])
-                grp_list = ""
-                iter = 0
-                for student in group_list["Student_id"][a]:
-                    iter = iter + 1
-                    grp_list = grp_list + "* " + user_list.loc[user_list["Student_id"]==student, "Student_name"].values[0] + "\n"
-                if iter > 0: # Only send messages to groups with 1 or more members
-                    conf_message = conf_message.replace("[Group Members]", grp_list)
-                    message = canvas.create_conversation(recipients = ['group_' + str(group_list["Group_id"][a])],
-                                                         body = conf_message,
-                                                         subject = config["subject_confirm"],
-                                                         force_new = True,
-                                                         group_conversation = True,
-                                                         context_code = "course_" + str(course.id))
-                
-            for student in user_list.loc[np.isnan(user_list["Group_id"]), "Student_id"]:
-                conf_message = config["message_nogroup"].replace("[First Name]", user_list.loc[user_list["Student_id"] == student, "FirstName"].values[0])
-                message = canvas.create_conversation(recipients = [str(student)],
-                                                     body = conf_message,
-                                                     subject = config["subject_nogroup"],
-                                                     force_new = True,
-                                                     context_code = "course_" + str(course.id))
-            info_text = info_text + " A message has been sent to students asking for confirmation of their group membership."
-
-        messagebox.showinfo("Download complete", info_text)
-        self.exportgroups.destroy()
+        self.master.destroy()
 
 def ExportGroups_call():
     exportgroups = tkinter.Toplevel()
     exp_grp = ExportGroups(exportgroups)
-    exportgroups.mainloop()
+
+def ExportGroups_classlist():
+    exportgroups = tkinter.Toplevel()
+    exp_grp = ExportGroups(exportgroups, preset="classlist")
 
 #%% Peer Mark section
-
-
 class PeerMark():
-   def __init__(self):
-       self.peermark = tkinter.Toplevel()
-       self.sentinel = None
-
-       self.peermark.title("Calculate Peer Marks")
-       self.peermark.resizable(0, 0)
-       self.peermark.grab_set()
+   def __init__(self, master):
+       self.master = master
+       self.master.title("Calculate Peer Marks")
+       self.master.resizable(0, 0)
+       
+       self.peermark = tkinter.Frame(self.master)
+       self.peermark.pack()
+       
+       #self.sentinel = None
     
        self.UploadPeerMark = tkinter.BooleanVar()
        self.UploadPeerMark.set(True)
@@ -720,13 +928,7 @@ class PeerMark():
        self.peermark_exportdata = ttk.Checkbutton(self.peermark, text = "Export peer data", variable = self.UploadPeerMark)
        self.peermark_exportdata.grid(row = 5, column = 2, sticky = "W")
        
-       if "courses" not in session:
-           session["courses"] = []
-           session["course_ids"] = []
-           for course in canvas.get_courses():
-               session["courses"].append(course.name)
-               session["course_ids"].append(course.id)
-       self.peermark_unit["values"] = tuple(session["courses"])
+       self.peermark_unit["values"] = tuple(session["course.names"])
        self.peermark_unit.current(0)
        self.group_assns()
         
@@ -734,7 +936,7 @@ class PeerMark():
        self.statusbar = tkinter.Label(self.peermark, bd=1, relief=tkinter.SUNKEN, anchor=tkinter.W, textvariable = self.status_text)
        self.statusbar.grid(row = 6, columnspan = 3, sticky = "ew")       
        
-       self.peermark.mainloop()
+       self.master.bind("<FocusIn>", self.check_status)
 
    def select_file(self):
        session["DataFile"] = filedialog.askopenfilename(initialdir = ".",title = "Select file",filetypes = (("Compatible File Types",("*.csv","*.tsv","*.xlsx")),("All Files","*.*")))
@@ -747,13 +949,20 @@ class PeerMark():
    def group_assns(self, event_type = ""):
         self.assn_id = []
         self.assn_name = []
-        course = canvas.get_course(session["course_ids"][self.peermark_unit.current()])
+        course = canvas.get_course(session["course.ids"][self.peermark_unit.current()])
         assns = course.get_assignments()
         for assn in assns:
             self.assn_id.append(assn.id)
             self.assn_name.append(assn.name)
         self.peermark_assn["values"] = tuple(self.assn_name)
         self.peermark_assn.current(0)
+
+   def check_status(self, event_type):
+       self.master.grab_set()    
+       if config["ScoreType"] == 1:
+           self.peermark_assn["state"] = "disabled"
+       else:
+           self.peermark_assn["state"] = "readonly"
     
    def status(self, stat_text):
        self.status_text.set(stat_text)
@@ -764,12 +973,13 @@ class PeerMark():
        session["DueDate"] = self.peermark_duedate.get_date()
        session["GroupAssignment_ID"] = self.assn_id[self.peermark_assn.current()]
        session["SaveData"] = self.UploadPeerMark.get()
-       course = canvas.get_course(session["course_ids"][self.peermark_unit.current()])
+       course = canvas.get_course(session["course.ids"][self.peermark_unit.current()])
        calculate_marks(course, self)
 
 def PeerMark_call():
     global pm
-    pm = PeerMark()
+    pm = tkinter.Toplevel()
+    window = PeerMark(pm)
 
 #%% Calculate marks   
 def calculate_marks(course, pm): 
@@ -796,14 +1006,14 @@ def calculate_marks(course, pm):
            qualtrics = pd.read_excel(session["DataFile"])
        else:
            messagebox.showinfo("Error", "Unable to import data from this file type.")
-           pm.peermark.destroy()
+           pm.master.destroy()
    except:
        messagebox.showinfo("Error", "Unable to parse data from this file.")
-       pm.peermark.peermark.destroy()
+       pm.master.destroy()
    
    # Create new assignment
    print("Creating new assignment for Peer Mark")
-   new_assignment = course.create_assignment({'name': config["AdjustedMark_Name"],
+   new_assignment = course.create_assignment({'name': config["PeerMark_Name"],
                                               'notify_of_update': False,
                                               'points_possible': config["RescaleTo"],
                                               'description': 'This assignment is your Peer Mark for the team project.',
@@ -963,7 +1173,7 @@ def calculate_marks(course, pm):
                    submission.edit(submission={'posted_grade': adj_score(ID), 'posted_at': "null"})
            submission.edit(comment={'text_comment': comments(ID)})
        
-   new_assignment.edit(assignment = {"published": False})
+   new_assignment.edit(assignment = {"published": config["publish_assignment"]})
    
    if iter==0:
        messagebox.showinfo("Error", "Unable to upload marks to Canvas. Please try again.")
@@ -1070,17 +1280,21 @@ def calculate_marks(course, pm):
         messagebox.showinfo("Upload Complete", 'The peer marks have been successfully uploaded to Canvas. An assignment, "Peer Mark", has been created. When it is ready to be released to students, you should publish the assignment and unmute it from the Gradebook. Peer rater data saved to "' + filename + '".')
    else:
         messagebox.showinfo("Upload Complete", 'The peer marks have been successfully uploaded to Canvas. An assignment, "Peer Mark", has been created. When it is ready to be released to students, you should publish the assignment and unmute it from the Gradebook.')
-   pm.peermark.destroy()
+   pm.master.destroy()
    
 #%% Policies
 class Policies():
-    def __init__(self):
-        self.policies = tkinter.Toplevel()
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Calculate Peer Marks")
+        self.master.resizable(0, 0)
+        self.master.grab_set()
+        
+        self.policies = tkinter.Frame(self.master)
+        self.policies.pack()
         self.validation = self.policies.register(only_numbers)
         
-        self.policies.title("Calculate Peer Marks")
-        self.policies.resizable(0, 0)
-        self.policies.grab_set()
+
                 
         labelframe1 = tkinter.LabelFrame(self.policies, text = "Peer Mark Calculation Policy", fg = "black")
         labelframe1.grid(row = 0, column = 0, pady = 5, padx = 5, sticky = "W")
@@ -1137,68 +1351,114 @@ class Policies():
         labelframe3 = tkinter.LabelFrame(self.policies, text = "Additional Settings", fg = "black")
         labelframe3.grid(row = 2, column = 0, pady = 5, padx = 5, sticky = "W")
 
-        tkinter.Label(labelframe3, text = "Peer mark scale ranges from 1 to:", fg = "black").grid(row = 1, column = 0, sticky = "NE")
+        tkinter.Label(labelframe3, text = "Peer mark scale ranges from 1 to:", fg = "black").grid(row = 0, column = 0, sticky = "NE")
         self.points_possible = tkinter.Entry(labelframe3, width = 5, validate="key", validatecommand=(self.validation, '%S'))
-        self.points_possible.grid(row = 1, column = 1, sticky="W", padx = 5)
+        self.points_possible.grid(row = 0, column = 1, sticky="W", padx = 5)
         self.points_possible.insert(0, config["PointsPossible"])
 
-        tkinter.Label(labelframe3, text = "Rescale peer mark to score out of:", fg = "black").grid(row = 2, column = 0, sticky = "NE")
+        tkinter.Label(labelframe3, text = "Rescale peer mark to score out of:", fg = "black").grid(row = 1, column = 0, sticky = "NE")
         self.rescale_to = tkinter.Entry(labelframe3, width = 5, validate="key", validatecommand=(self.validation, '%S'))
-        self.rescale_to.grid(row = 2, column = 1, sticky="W", padx = 5)
+        self.rescale_to.grid(row = 1, column = 1, sticky="W", padx = 5)
         self.rescale_to.insert(0, config["RescaleTo"])
+        
+        tkinter.Label(labelframe3, text = "Assignment name:", fg = "black").grid(row = 2, column = 0, sticky = "E", pady = 5)
+        self.pm_name = tkinter.Entry(labelframe3, width = 40)
+        self.pm_name.grid(row = 2, column = 1, padx = 5, sticky = "W")
+        self.pm_name.insert(0, str(config["PeerMark_Name"]))
+
+        self.publish_assignment = tkinter.IntVar()
+        self.publish_assignment.set(int(config["publish_assignment"]))
+        tkinter.Label(labelframe3, text = "Publish Peer Mark column in Grade Book?", fg = "black").grid(row = 3, column = 0, sticky = "NE")
+        ttk.Checkbutton(labelframe3, text = "Make the column visible but hide grades", variable = self.publish_assignment).grid(row = 3, column = 1, sticky = "W")
+
+        self.weekdays_only = tkinter.IntVar()
+        self.weekdays_only.set(int(config["weekdays_only"]))
+        tkinter.Label(labelframe3, text = "Exclude weekends?", fg = "black").grid(row = 4, column = 0, sticky = "NE")
+        ttk.Checkbutton(labelframe3, text = "Only count weekdays when calculating late penalty", variable = self.publish_assignment).grid(row = 4, column = 1, sticky = "W")
         
         self.save_policies = tkinter.IntVar()
         self.save_policies.set(1)
-        tkinter.Label(labelframe3, text = "Retain policies?", fg = "black").grid(row = 3, column = 0, sticky = "NE")
-        ttk.Checkbutton(labelframe3, text = "Save policies for future assessments", variable = self.save_policies).grid(row = 3, column = 1, sticky = "W")
+        tkinter.Label(labelframe3, text = "Retain policies?", fg = "black").grid(row = 5, column = 0, sticky = "NE")
+        ttk.Checkbutton(labelframe3, text = "Save policies for future assessments", variable = self.save_policies).grid(row = 5, column = 1, sticky = "W")
         
         tkinter.Button(self.policies, text = "Continue", fg = "black", command = self.save_settings).grid(row = 13, column = 0, columnspan = 3, pady = 5)
-        self.policies.mainloop()
+        
+        self.policies_scoring.bind("<<ComboboxSelected>>", self.change_assnname)
+    
+    def change_assnname(self, event_list = ""):
+        self.pm_name.delete(0, 'end')
+        if self.policies_scoring.current()==0:
+            self.pm_name.insert(0, "Peer Mark (average mark received)") # Average mark received
+        else:
+            self.pm_name.insert(0, "Team Assignment (peer-rating adjusted)")
     
     def save_settings(self):
         config["ScoreType"] = int(self.policies_scoring.current()+1)
         config["SelfVote"] = int(self.policies_selfrat.current())
         config["MinimumPeers"] = int(self.policies_minimum.get())
+        config["PeerMark_Name"] = str(self.pm_name.get().strip())
         config["Penalty_NonComplete"] = int(self.penalty_noncomplete.get())
         config["Penalty_PerDayLate"] = int(self.penalty_late.get())
         config["Penalty_SelfPerfect"] = int(self.penalty_selfperfect.get())
         config["Penalty_PeersAllZero"] = int(self.penalty_allzero.get())
         config["PointsPossible"] = int(self.points_possible.get())
         config["RescaleTo"] = int(self.rescale_to.get())
+        config["publish_assignment"] = bool(self.publish_assignment.get())
+        config["weekdays_only"] = bool(self.weekdays_only.get())
         
-        if self.save_policies.get() == 1:
-            f = open("config.txt", "w")
-            f.write(json.dumps(config, sort_keys=True, separators=(',\n', ':')))
-            f.close()
-        
-        self.policies.destroy()
+        if self.save_policies.get() == 1: save_config()
+        self.master.destroy()
         
 def Policies_call():
-    pol = Policies()
+    policies = tkinter.Toplevel()
+    pol = Policies(policies)
 
 #%% Bulk mail
 class BulkMail:
-    def __init__(self):
-        self.window = tkinter.Toplevel()
-        self.window.title("Send Bulk Message via Canvas")
-        self.window.resizable(0, 0)
-        self.window.grab_set()
+    def __init__(self, master, preset = "", subject = "", message = ""):
+        self.preset = preset
+        self.master = master
+        self.master.title("Send Bulk Message via Canvas")
+        self.master.resizable(0, 0)
         
-        tkinter.Label(self.window, text = "Unit:", fg = "black").grid(row = 0, column = 0, sticky = "E", pady = 5)
+        self.master.bind("<FocusIn>", self.check_focus)
+        
+        self.window = tkinter.Frame(self.master)
+        self.window.pack()
+        
+        tkinter.Label(self.window, text = "Unit:", fg = "black").grid(row = 1, column = 0, sticky = "E", pady = 5)
         self.window_unit = ttk.Combobox(self.window, width = 60, state="readonly")
-        self.window_unit.grid(row = 0, column = 1, sticky = "W", padx = 5)
-        
-        tkinter.Label(self.window, text = "Distribution list file:", fg = "black").grid(row = 2, column = 0, sticky = "E", pady = 5)
+        self.window_unit.grid(row = 1, column = 1, sticky = "W", padx = 5)
+        self.window_unit["values"] = tuple(session["course.names"])
+        self.window_unit.current(0)
+
+        self.sec_text = tkinter.StringVar()
+        self.sec_text.set("Distribution list file")
+        self.secondary_lab = tkinter.Label(self.window, textvariable = self.sec_text, fg = "black").grid(row = 3, column = 0, sticky = "E", pady = 5)        
+
+        # Distribution list file
         self.window_distlist = tkinter.Button(self.window, text = "Select...", fg = "black", command = self.select_file)
-        self.window_distlist.grid(row = 2, column = 1, pady = 5, padx = 5, sticky = "W")
+        self.window_distlist.grid(row = 3, column = 1, pady = 5, padx = 5, sticky = "W")
         self.datafile = tkinter.Label(self.window, text = "", fg = "black")
-        self.datafile.grid(row = 3, column = 1, pady = 5, sticky = "W")
-        
-        tkinter.Label(self.window, text = "Send message to:", fg = "black").grid(row = 4, column = 0, sticky = "E", pady = 5)
-        self.window_sendto = ttk.Combobox(self.window, width = 60, state="readonly")
-        self.window_sendto.grid(row = 4, column = 1, sticky = "W", pady = 5, padx = 5)
-        self.window_sendto["values"] = ["All students in list"]
-        self.window_sendto.current(0)
+        self.datafile.grid(row = 4, column = 1, pady = 5, sticky = "W")
+
+        # Group sets
+        self.window_groupset = ttk.Combobox(self.window, width = 60, state="readonly")
+        self.group_sets(self)
+        self.window_unit.bind("<<ComboboxSelected>>", self.group_sets)
+        #self.groupset.grid(row = 3, column = 1, sticky = "W", padx = 5)
+
+        tkinter.Label(self.window, text = "Send to (via):", fg = "black").grid(row = 0, column = 0, sticky = "E", pady = 5)
+        self.window_sendto = ttk.Combobox(self.window, width = 60, state="disabled")
+        self.window_sendto.grid(row = 0, column = 1, sticky = "W", pady = 5, padx = 5)
+        self.window_sendto["values"] = ["All students (Canvas)",
+                                        "Students in groups (Canvas)",
+                                        "Students not in groups (Canvas)",
+                                        "Groups (Canvas)",
+                                        "All students (distribution list file)",
+                                        "Students who completed the survey (distribution list file)",
+                                        "Students who did not complete the survey (distribution list file)"]
+        self.change_message(self)
         self.window_sendto.bind("<<ComboboxSelected>>", self.change_message)
         
         tkinter.Label(self.window, text = "Message:", fg = "black").grid(row = 5, column = 0, columnspan = 2, pady = 5, padx = 5)
@@ -1207,113 +1467,452 @@ class BulkMail:
         self.subject_text = tkinter.StringVar()
         self.subject = tkinter.Entry(self.window, textvariable = self.subject_text)
         self.subject.grid(row = 6, column = 1, pady = 5, padx = 5, sticky = "WE")
+        self.subject_text.set(subject)
 
         self.message = tkinter.Text(self.window, width = 60, height = 15, wrap = tkinter.WORD)
         self.message.grid(row = 7, column = 0, columnspan = 2, sticky = "W", pady = 5, padx = 5)
+        self.message.bind("<KeyRelease>", self.check_status)
+        self.message.insert(tkinter.END, message)
+        
+        self.button_field = tkinter.Button(self.window, text = "Fields...", fg = "black", command = self.field_picker)
+        self.button_field.grid(row = 8, column = 0, columnspan = 2, sticky = "W", padx = 5)
         
         self.sendmessage = tkinter.Button(self.window, text = "Send Bulk Message", fg = "black", state = "disabled", command = self.MessageSend)
         self.sendmessage.grid(row = 8, column = 0, columnspan = 2, pady = 5)
        
-        if "courses" not in session:
-            session["courses"] = []
-            session["course_ids"] = []
-            for course in canvas.get_courses():
-                session["courses"].append(course.name)
-                session["course_ids"].append(course.id)
-        self.window_unit["values"] = tuple(session["courses"])
-        self.window_unit.current(0)
+        self.distlist = {}
+        session["DistList"] = ""
+
+        self.save_template = tkinter.IntVar()
+        self.st_check = ttk.Checkbutton(self.window, text = "Save message as template", variable = self.save_template, state = "normal")
+        self.st_check.grid(row = 8, column = 0, columnspan = 2, sticky = "E")
         
-        self.window.mainloop()
+        # Check presets
+        if preset=="confirm":
+            self.window_sendto.current(3)
+        elif preset=="nogroup":
+            self.window_sendto.current(2)
+        elif preset=="invitation":
+            self.window_sendto.current(4)
+        elif preset=="reminder":
+            self.window_sendto.current(6)
+        else:
+            self.window_sendto.current(0)
+            self.window_sendto["state"] = "readonly"
+            self.st_check["state"] = "disabled"
+
+        self.change_message(self)
+        self.check_status(self)
+    
+    def check_focus(self, event_type = ""):
+        self.master.grab_set()
+    
+    def distlist_keys(self, event_type = ""):
+        keys = []
+        if self.window_sendto.current() in [0,1,2]:
+            keys = ["first_name", "last_name", "email"]
+        if self.window_sendto.current() == 1:
+            keys.append("group_name")
+            keys.append("peers_list")
+            keys.append("peers_bulletlist")
+            keys.append("group_homepage")
+        elif self.window_sendto.current() == 3:
+            keys = ["firstnames_list", "members_list", "members_bulletlist", "name", "group_homepage"]        
+        elif self.window_sendto.current() in [4,5,6]:
+            self.create_distlist()
+            if len(self.distlist) > 0:
+                keys = list(self.distlist[next(iter(self.distlist))].keys())
+        return(keys)
+    
+    def field_picker(self, event_type = ""):
+        self.master.grab_release()
+        field_window = tkinter.Toplevel()
+        fp = FieldPicker(field_window, self.distlist_keys())
+    
+    def insert_field(self, event_type = "", field = ""):
+        self.message.insert(tkinter.INSERT, field)
+    
+    def check_status(self, event_type = ""):
+        if (len(self.message.get(1.0, tkinter.END).strip()) < 1) or (self.window_sendto.current() in [4,5,6] and session["DistList"] == ""):
+            self.sendmessage["state"] = "disabled"
+        else:
+            self.sendmessage["state"] = "normal"
+        if (self.window_sendto.current() in [4,5,6] and session["DistList"] == ""):
+            self.button_field["state"] = "disabled"
+        else:
+            self.button_field["state"] = "normal"
         
     def select_file(self):
        session["DistList"] = filedialog.askopenfilename(initialdir = ".", title = "Select file",filetypes = (("Compatible File Types",("*.csv")),("All Files","*.*")))
-       if len(session["DistList"]) > 0:
-           try:
-               self.distlist = pd.read_csv(session["DistList"])
-               if any(a in self.distlist.columns for a in ["External Data Reference", "ExternalDataReference", "Student_id"]):
-                   self.datafile["text"] = session["DistList"]
-                   if "Student_id" in self.distlist.columns: session["ID_column"] = "Student_id"
-                   if "External Data Reference" in self.distlist.columns: session["ID_column"] = "External Data Reference"
-                   if "ExternalDataReference" in self.distlist.columns: session["ID_column"] = "ExternalDataReference"
-                   self.sendmessage["state"] = "normal"
-                   if "Status" in self.distlist.columns: 
-                       self.window_sendto["values"] = ["All students in list", "Students who have not completed the peer evaluation", "Students who have completed the peer evalaution"]
-                       self.change_message()
-               else:
-                   messagebox.showinfo("Error", "Cannot find user ID column in file. This column should be labelled 'Student_id' or 'External Data Reference'.")
-           except:
-               messagebox.showinfo("Error", "Trouble parsing file.")
+       self.datafile["text"] = session["DistList"]
+       self.check_status(self)
        
     def change_message(self, event_type = ""):
-        if len(self.window_sendto["values"]) > 1:
-            self.message.delete(1.0, tkinter.END)
-            self.subject_text.set("")
-            if self.window_sendto.current() == 0:
-                self.subject_text.set(config["subject_invitation"])
-                self.message.insert(tkinter.END, config["message_invitation"])
-            if self.window_sendto.current() == 1:
-                self.subject_text.set(config["subject_reminder"])
-                self.message.insert(tkinter.END, config["message_reminder"])            
-            if self.window_sendto.current() == 2:
-                self.subject_text.set(config["subject_thankyou"])
-                self.message.insert(tkinter.END, config["message_thankyou"])
+        self.distlist = {}
+        if self.window_sendto.current() == 0: #Canvas all students
+            self.sec_text.set("")
+            self.window_distlist.grid_forget()
+            self.window_groupset.grid_forget()
+        elif self.window_sendto.current() in [1,2,3]:
+            self.sec_text.set("Group set:")
+            self.window_distlist.grid_forget()
+            self.window_groupset.grid(row = 3, column = 1, sticky = "W", padx = 5)
+        elif self.window_sendto.current() in [4,5,6]:
+            self.sec_text.set("Distribution list file:")
+            self.window_distlist.grid(row = 3, column = 1, pady = 5, padx = 5, sticky = "W")
+            self.window_groupset.grid_forget()
+            
+    def group_sets(self, event_type = ""):
+        self.group_sets_id = []
+        self.group_sets_name = []
+        GQL.course_id = session["course.ids"][self.window_unit.current()]
+        for group_set in GQL.group_sets():
+            self.group_sets_id.append(group_set["_id"])
+            self.group_sets_name.append(group_set["name"])
+        if len(self.group_sets_id) > 0:
+            self.window_groupset["values"] = tuple(self.group_sets_name)
+            self.window_groupset.current(0)
+        else:
+            self.window_groupset["values"] = ()
+            self.window_groupset.set('')            
+        session["group_set"] = self.group_sets_id
+
+    def create_distlist(self, event_type = ""):
+        if self.window_sendto.current() in [1,2,3]: # Prepopulate the list of groups
+            GQL.groupset_id = self.group_sets_id[self.window_groupset.current()]        
+        if self.window_sendto.current() in [0,1,2]: # Download students from Canvas
+            students = GQL.students_comprehensive()
+        if self.window_sendto.current() == 0: # Simply copy the distribution list
+            self.distlist = students
+        if self.window_sendto.current() == 1: # Drop students without groups; get list of peers
+            for student in students:
+                if "group_id" in students[student]:
+                    self.distlist[student] = students[student]
+                    self.distlist[student]["peers_bulletlist"] = ""
+                    self.distlist[student]["peers_list"] = ""
+                    for n, peer in enumerate(self.distlist[student]["peers"], 1):
+                        self.distlist[student]["peers_bulletlist"] += "* " + students[peer]["name"]
+                        if (n < len(self.distlist[student]["peers"])):
+                            self.distlist[student]["peers_bulletlist"] += "\n"
+                            if (n > 1):
+                                self.distlist[student]["peers_list"] += ", "
+                        elif (n == len(self.distlist[student]["peers"])):
+                            self.distlist[student]["peers_list"] += " and "
+                        self.distlist[student]["peers_list"] += students[peer]["name"]
+                    self.distlist[student]["group_homepage"] = config["API_URL"] + "groups/" + str(students[student]["group_id"]) + "/"
+        if self.window_sendto.current() == 2: # Drop students who have groups
+            for student in students:
+                if "group_id" not in students[student]:
+                    self.distlist[student] = students[student]
+        if self.window_sendto.current() == 3: # Get list of groups
+            groups = GQL.groups()
+            students = GQL.students_comprehensive()
+            for group in groups:
+                if len(groups[group]["users"]) > 0:
+                    self.distlist[group] = groups[group]
+                    self.distlist[group]["members_bulletlist"] = ""
+                    self.distlist[group]["members_list"] = ""
+                    self.distlist[group]["firstnames_list"] = ""
+                    self.distlist[group]["group_homepage"] = config["API_URL"] + "groups/" + str(group) + "/"
+                    for n, member in enumerate(groups[group]["users"],1):
+                        self.distlist[group]["members_bulletlist"] += "* " + students[member]["name"]
+                        if (n < len(groups[group]["users"])):
+                            self.distlist[group]["members_bulletlist"] += "\n"
+                            if (n > 1):
+                                self.distlist[group]["members_list"] += ", "
+                                self.distlist[group]["firstnames_list"] += ", "
+                        elif (n == len(groups[group]["users"])):
+                            self.distlist[group]["members_list"] += " and "
+                            self.distlist[group]["firstnames_list"] += " and "
+                        self.distlist[group]["members_list"] += students[member]["name"]
+                        self.distlist[group]["firstnames_list"] += students[member]["first_name"]
+        if self.window_sendto.current() in [4,5,6]:
+            print(session["DistList"])
+            if len(session["DistList"]) > 0:
+                try:
+                    df = pd.read_csv(session["DistList"])
+                    students = {}
+                    if any(a in df.columns for a in ["External Data Reference", "ExternalDataReference", "Student_id", "id", "ID"]):
+                        #self.datafile["text"] = session["DistList"]
+                        if "Student_id" in df.columns: session["ID_column"] = "Student_id"
+                        if "External Data Reference" in df.columns: session["ID_column"] = "External Data Reference"
+                        if "ExternalDataReference" in df.columns: session["ID_column"] = "ExternalDataReference"
+                        if "id" in df.columns: session["ID_column"] = "id"
+                        if "ID" in df.columns: session["ID_column"] = "ID"
+                        for y, ID in enumerate(df[session["ID_column"]]):
+                            students[str(ID)] = {}
+                            for col_name in df.columns:
+                                if col_name != session["ID_column"]:
+                                    students[str(ID)][col_name] = df.loc[y, col_name]                        
+                    else:
+                        messagebox.showinfo("Error", "Cannot find user ID column in file. This column should be labelled 'id', 'Student_id' or 'External Data Reference'.")
+                except:
+                    messagebox.showinfo("Error", "Trouble parsing file.")
+        if self.window_sendto.current() == 4:
+            self.distlist = students
+        if self.window_sendto.current() in [5,6] and "Status" not in df.columns:
+            messagebox.showinfo("Error", "Cannot find 'Status' column in file used to indicate whether a student has completed the survey.")
+        if self.window_sendto.current() == 5:
+            for student in students:
+                if students[student]["Status"] == "Finished Survey":
+                    self.distlist[student] = students[student]
+        if self.window_sendto.current() == 6:
+            for student in students:
+                if students[student]["Status"] != "Finished Survey":
+                    self.distlist[student] = students[student]
+        
+        # Delete all of the fields that are lists
+        delete_dict = {}
+        for case in self.distlist:
+            for field in self.distlist[case]:
+                if type(self.distlist[case][field]) in [list,tuple,dict]:
+                    if case not in delete_dict: delete_dict[case] = []
+                    delete_dict[case].append(field)
+        for case in delete_dict:
+            for field in delete_dict[case]:
+                del self.distlist[case][field]
+            
+        #print(self.distlist)
                 
     def MessageSend(self):
-        # Filter participants if requested
-        print("Sending messages...")
-        if self.window_sendto.current() == 1: self.distlist = self.distlist[self.distlist["Status"] != "Finished Survey"]
-        if self.window_sendto.current() == 2: self.distlist = self.distlist[self.distlist["Status"] == "Finished Survey"]
-        if self.window_sendto.current() > 0: self.distlist = self.distlist.reset_index(drop = True) # Reset the index
-        for y, ID in enumerate(self.distlist[session["ID_column"]]):
-            temp_text = self.message.get(1.0, tkinter.END)
-            for col_name in self.distlist.columns:
-                temp_text = temp_text.replace("["+col_name+"]", str(self.distlist.loc[y, col_name]))
-            print("Sending message " + str(y+1) + " of " + str(len(self.distlist[session["ID_column"]])))
-            #print(temp_text + "\n\n")
-            bulk_message = canvas.create_conversation(recipients = [str(ID)],
-                                                 body = temp_text,
-                                                 subject = self.subject_text.get(),
-                                                 force_new = True,
-                                                 context_code = "course_" + str(session["course_ids"][self.window_unit.current()]))
+        if self.preset!="":
+            print("Saving message as template...")
+            config["subject_" + self.preset] = self.subject_text.get()
+            config["message_" + self.preset] = self.message.get(1.0, tkinter.END)
+            save_config()
             
-        messagebox.showinfo("Finished", "All messages have been sent.")
-        self.window.destroy()
+        print("Preparing distribution list...")                
+        self.create_distlist(self)
+        if len(self.distlist) == 0: 
+            messagebox.showinfo("Error", "No students found.")
+        else:
+            print("Preparing messages...")
+            messagelist = {}
+            for case in self.distlist:
+                messagelist[case] = {}
+                message = self.message.get(1.0, tkinter.END)
+                subject = self.subject_text.get()
+                for field in self.distlist[case]:
+                    subject = subject.replace("["+field+"]", str(self.distlist[case][field]))
+                    message = message.replace("["+field+"]", str(self.distlist[case][field]))
+                messagelist[case]["subject"] = subject
+                messagelist[case]["message"] = message
+            
+            for k, case in enumerate(messagelist, 1):
+                print("Sending message {} of {}".format(k, len(messagelist)))
+                if self.window_sendto.current() == 3: # Send group message
+                    bulk_message = canvas.create_conversation(recipients = ['group_' + str(case)],
+                                                         body = messagelist[case]["message"],
+                                                         subject = messagelist[case]["subject"],
+                                                         group_conversation = True,
+                                                         context_code = "course_" + str(GQL.course_id))            
+                else: # Send individual message
+                    bulk_message = canvas.create_conversation(recipients = [str(case)],
+                                                              body = messagelist[case]["message"],
+                                                              subject = messagelist[case]["subject"],
+                                                              force_new = True,
+                                                              context_code = "course_" + str(GQL.course_id))
+            messagebox.showinfo("Finished", "All messages have been sent.")
+        self.master.destroy()
 
-def BulkMail_call():
-    bm = BulkMail()
+def BulkMail_call(preset = ""):
+    global bm
+    window = tkinter.Toplevel()
+    bm = BulkMail(window)
+    
+def BulkMail_confirm():
+    global bm
+    window = tkinter.Toplevel()
+    bm = BulkMail(window,
+                  preset = "confirm", 
+                  subject = config["subject_confirm"],
+                  message = config["message_confirm"])
+
+def BulkMail_nogroup():
+    global bm
+    window = tkinter.Toplevel()
+    bm = BulkMail(window,
+                  preset = "nogroup", 
+                  subject = config["subject_nogroup"],
+                  message = config["message_nogroup"])
+    
+def BulkMail_invitation():
+    global bm
+    window = tkinter.Toplevel()
+    bm = BulkMail(window,
+                  preset = "invitation", 
+                  subject = config["subject_invitation"],
+                  message = config["message_invitation"])
+
+def BulkMail_reminder():
+    global bm
+    window = tkinter.Toplevel()
+    bm = BulkMail(window,
+                  preset = "reminder", 
+                  subject = config["subject_reminder"],
+                  message = config["message_reminder"])
+
+#%% Field picker
+class FieldPicker:
+    def __init__(self, master, fields = []):
+        self.fields = fields
+        self.master = master
+        self.master.title("Fields")
+        self.master.resizable(0,0)
+        self.master.grab_set()
+        
+        self.window = tkinter.Frame(self.master)
+        self.window.pack()
+        
+        self.field_list = tkinter.Listbox(self.window, width = 30, height = 20)
+        self.field_list.pack(padx = 10, pady = 10)
+        for field in fields:
+            self.field_list.insert(tkinter.END, field)
+            
+        self.insert_field = tkinter.Button(self.window, text = "Insert Field", command = self.insert_text)
+        self.insert_field.pack(padx = 10, pady = 10)
+        
+    def insert_text(self):
+        self.master.grab_release()
+        bm.insert_field(field = "[" + self.fields[self.field_list.curselection()[0]] + "]")
+        self.master.destroy()  
+
+#%% Qualtrics Template
+def upload_template():
+    subprocess.Popen(['explorer', os.path.abspath(os.path.dirname(sys.argv[0])) + "\\survey"])
+    messagebox.showinfo("Create Survey", "To create the survey, upload the \"Peer_Evaluation_Qualtrics_Template.qsf\" template to Qualtrics. Read the \"Instructions.txt\" file for more information.")
 
 #%% Main Menu
+
 class MainMenu:
-    def __init__(self):
-        self.window = tkinter.Tk()
-        self.window.title("PEER")
-        self.window.geometry("300x250") # size of the window width:- 500, height:- 375
-        self.window.resizable(0, 0) # this prevents from resizing the window
-        self.window.bind("<FocusIn>", self.check_status)
-        top_frame = tkinter.Frame(self.window).pack(side="top", pady = 10)
-        tkinter.Button(top_frame, text = "Modify user settings", fg = "black", command = Settings_call).pack(pady = 10)# 'fg - foreground' is used to color the contents
-        self.button_dl = tkinter.Button(top_frame, text = "Download student groups\nfrom Canvas", fg = "black", command = ExportGroups_call)
-        self.button_dl.pack(pady = 10)# 'text' is used to write the text on the Button
-        self.button_bulk = tkinter.Button(top_frame, text = "Send bulk message\nvia Canvas", fg = "black", command = BulkMail_call)
-        self.button_bulk.pack(pady = 10)
-        self.button_pm = tkinter.Button(top_frame, text = "Calculate peer marks", fg = "black", command = PeerMark_call)
-        self.button_pm.pack(pady = 10)# 'text' is used to write the text on the Button
+    def __init__(self, master):
+        self.master = master
+        self.master.title("PEER")
+        #self.window.geometry("300x250") # size of the window width:- 500, height:- 375
+        self.master.resizable(0, 0) # this prevents from resizing the window
+        self.master.bind("<FocusIn>", self.check_status)
+
+        self.window = tkinter.Frame(self.master)
+        self.window.pack(side="top", pady = 0, padx = 50)
+
+        # create a pulldown menu, and add it to the menu bar
+        self.menubar = tkinter.Menu(self.window)
+        self.master.config(menu = self.menubar)
+
+        self.filemenu = tkinter.Menu(self.menubar, tearoff=0)
+        self.filemenu.add_command(label="Settings", command = Settings_call)
+        self.filemenu.add_separator()
+        self.filemenu.add_command(label="Exit", command = self.exit_program)
+        self.menubar.add_cascade(label="File", menu=self.filemenu)              
+
+        self.toolmenu = tkinter.Menu(self.menubar, tearoff = 0)
+        self.toolmenu.add_command(label="Send Bulk Message", command = BulkMail_call)
+        self.toolmenu.add_command(label="Download Class List", command = ExportGroups_classlist)
+        self.menubar.add_cascade(label="Tools", menu=self.toolmenu)
+
+        labelframe1 = tkinter.LabelFrame(self.window, text = "Preparation", fg = "black")
+        labelframe1.pack(pady = 10)
+
+        self.button_cgm = tkinter.Button(labelframe1, text = "Confirm group membership", fg = "black", command = BulkMail_confirm)
+        self.button_cgm.pack(pady = 10, padx = 10)# 'text' is used to write the text on the Button
+        CreateToolTip(self.button_cgm, text = 
+                      'Contact students via the Canvas bulk mailer to confirm\n'+
+                      'their membership in each group, as well as their peers.')
+
+        self.button_ng = tkinter.Button(labelframe1, text = "Contact students\nwithout groups", fg = "black", command = BulkMail_nogroup)
+        self.button_ng.pack(pady = 10, padx = 10)# 'text' is used to write the text on the Button
+        CreateToolTip(self.button_ng, text = 
+                      'Contact students via the Canvas bulk mailer\n'+
+                      'who are not currently enrolled in groups.')
+
+        labelframe2 = tkinter.LabelFrame(self.window, text = "Survey Launch", fg = "black")
+        labelframe2.pack(pady = 10)
+        
+        self.button_tp = tkinter.Button(labelframe2, text = "Create Qualtrics survey\nfrom template", fg = "black", command = upload_template)
+        self.button_tp.pack(pady = 10, padx = 10)# 'text' is used to write the text on the Button
+        CreateToolTip(self.button_tp, text = 
+                      'Upload the Peer Evaluation template\n'+
+                      'to Qualtrics to create the survey.')
+        
+        self.button_dl = tkinter.Button(labelframe2, text = "Create Contacts list\nfrom group membership", fg = "black", command = ExportGroups_call)
+        self.button_dl.pack(pady = 10, padx = 10)# 'text' is used to write the text on the Button
+        CreateToolTip(self.button_dl, text = 
+                      'Export group membership data from Canvas and create\n'+
+                      'a Contacts list file to be uploaded to Qualtrics.')
+
+        self.button_si = tkinter.Button(labelframe2, text = "Send survey invitations\nfrom distribution list", fg = "black", command = BulkMail_invitation)
+        self.button_si.pack(pady = 10, padx = 10)# 'text' is used to write the text on the Button
+        CreateToolTip(self.button_si, text = 
+                      'Send students a unique link to the Peer Evaluation from a\n'+ 
+                      'Qualtrics distribution list using the Canvas bulk mailer.')
+
+
+        labelframe3 = tkinter.LabelFrame(self.window, text = "Peer Evaluation Finalisation", fg = "black")
+        labelframe3.pack(pady = 10)        
+    
+        self.button_sr = tkinter.Button(labelframe3, text = "Send survey reminders\nfrom distribution list", fg = "black", command = BulkMail_reminder)
+        self.button_sr.pack(pady = 10, padx = 10)# 'text' is used to write the text on the Button
+        CreateToolTip(self.button_sr, text = 
+                      'Send students who haven\'t completed the Peer Evaluation a reminder to\n'+
+                      'complete it (from a Qualtrics distribution list via the Canvas bulk mailer).')
+
+        self.button_pm = tkinter.Button(labelframe3, text = "Upload peer marks\nand comments", fg = "black", command = PeerMark_call)
+        self.button_pm.pack(pady = 10)# 'text' is used to write the text on the Button     
+        CreateToolTip(self.button_pm, text = 
+                      'Calculate peer marks from the Qualtrics survey data and upload\n'+ 
+                      'these marks and peer feedback to the Canvas grade book.')
+
         self.check_status()
-        self.window.mainloop()
+        
+        if os.path.abspath(os.path.dirname(sys.argv[0]))[-4:].lower() == ".zip":
+            messagebox.showinfo("Error", "PEER cannot be run within a ZIP folder. Please extract all of the files and try again.")
+            mm.destroy()
+            sys.exit()
+        
+        if config["API_TOKEN"] == "" or config["API_URL"] == "":
+            messagebox.showinfo("Warning", "No configuration found. Please go to File -> Settings to set up a link to Canvas.")            
     
     def check_status(self, event_type = ""):
-        global canvas
-        if config["API_TOKEN"] == "" or config["API_URL"] == "" or config["EmailSuffix"] == "":
+        global canvas, GQL
+        if config["API_TOKEN"] == "" or config["API_URL"] == "":
             self.button_dl["state"] ='disabled'
-            self.button_bulk["state"] = 'disabled'
             self.button_pm["state"] ='disabled'
+            self.button_ng["state"] = 'disabled'
+            self.button_cgm["state"] = 'disabled'
+            self.button_si["state"] = 'disabled'
+            self.button_sr["state"] = 'disabled'
+            self.button_pm["state"] = 'disabled'
+            self.toolmenu.entryconfigure("Send Bulk Message", state = 'disabled')
+            self.toolmenu.entryconfigure("Download Class List", state = 'disabled')
         else:
-            canvas = Canvas(config["API_URL"], config["API_TOKEN"])
+            GQL = GraphQL()
+            if "course.names" not in session:
+                session["course.names"] = []
+                session["course.ids"] = []
+                courses = GQL.courses()
+                for course in courses:
+                    session["course.names"].append(courses[course]["name"])
+                    session["course.ids"].append(course)
+            canvas = Canvas(cleanupURL(config["API_URL"]), config["API_TOKEN"])
             self.button_dl["state"] ='normal'
-            self.button_bulk["state"] = 'normal'
             self.button_pm["state"] ='normal'
+            self.button_ng["state"] = 'normal'
+            self.button_cgm["state"] = 'normal'
+            self.button_si["state"] = 'normal'
+            self.button_sr["state"] = 'normal'
+            self.button_pm["state"] = 'normal'
+            self.toolmenu.entryconfigure("Send Bulk Message", state = 'normal')
+            self.toolmenu.entryconfigure("Download Class List", state = 'normal')
 
+            
+    def exit_program(self):
+        self.master.destroy()
+            
 temp_data = {}
 canvas = None
-mm = MainMenu()
+bm = None
+pm = None
 
+top_frame = tkinter.Tk()
+mm = MainMenu(top_frame)
+top_frame.mainloop()

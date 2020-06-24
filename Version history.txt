@@ -1,0 +1,15 @@
+The Peer Evaluation Enhancement Resource (PEER)
+
+Version 0.5.1 (2020-06-23): PEER issues a warning message if you try to run the application within a ZIP folder.
+Version 0.5.0 (2020-06-22): Added a field picker to the Bulk Mailer. Added an error handling system to the GraphQL query system to make it more robust to Internet connectivity issues. Added the Peer survey template file as part of the distribution.
+Version 0.4.0 (2020-06-20): Added Policy settings, allowing the uploaded Peer Mark column to be published/unpublished, and to count only weekdays when calculating late penalties. Fixed a bug causing the Group message feature to send out messages to individual members, rather than the entire group.
+Version 0.3.0 (2020-06-19): Major revision, including faster uploading/downloading of data from Canvas using the GraphQL API, and revamping of the bulk mailer feature. New menu system in the main window. Simplification of the "Settings" section (email address no longer required.) Courses/units are now presented from most recent to oldest. Added hover-over captions to describe different parts of the interface.
+Version 0.2.0 (2020-05-27): PEER now comes with its own installer. Introduced an "Open App Folder" button under Settings.
+Version 0.1.2 (2020-05-13): Fixed a bug causing the program to crash while exporting students when dealing with multiple group sets.
+Version 0.1.1 (2020-04-14): Fixed a bug in which the program crashed when downloading groups with a member who had unenrolled from a course.
+Version 0.1.0 (2020-02-22): Default bulk messages are now editable in the 'default.txt' and 'config.txt' files.
+Version 0.0.5 (2020-02-21): Fixed code to automatically hide grades from the students. In the SaveData file, the rater appears before the receiver.
+Version 0.0.4 (2020-02-20): Only weekdays are now counted when calculating late penalties.
+Version 0.0.3: Fixed a bug that caused the program to crash if there was an empty group (under "Export Groups").
+Version 0.0.2: Fixed bug with repeated "other" list, and made the uploading of marks more robust.
+Version 0.0.1: Fixed bug, regarding "PointsPossible" property of the "config" dictionary
