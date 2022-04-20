@@ -7,7 +7,10 @@ Uploading the template to Qualtrics
 4. Click on "From a File".
 5. Choose the "Peer_Evaluation_Qualtrics_Template.qsf" using the file picker.
 
-A new survey will be created from the template.
+A new survey will be created from the template. The template is based on the Comprehensive Assessment of Team Member Effectiveness by Ohland et al. (2012):
+
+Ohland, M. W., Loughry, M. L., Woehr, D. J., Bullard, L. G., Felder, R. M., Finelli, C. J., Layton, R. A., Pomeranz, H. R., & Schmucker, D. G. (2012). The comprehensive assessment of team member effectiveness: Development of a behaviorally anchored rating scale for self- and peer evaluation. Academy of Management Learning & Education, 11(4), 609-630. https://doi.org/10.5465/amle.2010.0177 
+
 
 
 
