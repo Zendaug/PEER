@@ -54,7 +54,7 @@ class survey():
         rep_list = ["Please rate each team member in relation to: ", " - Myself"]
         for a in range(1,10): rep_list.append(" - [Field-Peer" + str(a) + "_name]")
         
-        # Determine the teamwork items in the Qualtrics file
+        # Determine the teamwork items in the survey data file
         for column in self.data:
             if (column[0:8].upper() == "TEAMWORK"):
                 t_name = self.data[column][0]
@@ -137,6 +137,9 @@ class survey():
             self.error = True
             return
 
+        # Change the name of the "EndDate" column
+        self.data["EndDate"] = self.data.pop("submitdate. Date submitted")
+
         # Check that attributes have been included
         found = False
         for column in self.data:
@@ -184,7 +187,7 @@ class survey():
         
         # Create a "Finished" column, based on whether there is a submission date
         self.data["Finished"] = []
-        for b, case in enumerate(self.data["submitdate. Date submitted"]):
+        for b, case in enumerate(self.data["EndDate"]):
             if case is not None and case != "":
                 self.data["Finished"].append(True)
             else:
@@ -211,10 +214,7 @@ class survey():
                 self.data["ExternalReference"][b] = cleanupNumber(case) # Convert to an integer
         
         # Convert to a "records" data frame
-        self.data = df_byRow(self.data, "ExternalReference")        
-        
-        # Change the name of the EndDate
-        collapseList(self.data, "EndDate", [b for b in self.colnames if re.search("submitdate. Date submitted", b)], unlist = True)
+        self.data = df_byRow(self.data, "ExternalReference")
         
         # Collapse the data about peers into a list   
         collapseList(self.data, "Group_id", [b for b in self.colnames if re.search("Group_id", b)], unlist = True)

@@ -1,0 +1,22 @@
+{
+	"subject_confirm": "Confirming Group Membership",
+	"message_confirm": "Dear [firstnames_list],\n\nI am writing to confirm your membership in: [name].\n\nAccording to our records, the members of this group include:\n\n[members_bulletlist]\n\nIf there are any errors in our records -- such as missing group members or people incorrectly listed as group members -- please contact me as soon as possible. You may ignore this message if these records are correct.\n\nWe encourage you to visit your group's homepage, a platform where you can collaborate with your fellow members. Your group's homepage is located at: [group_homepage]",
+	"subject_nogroup": "Lack of Group Membership",
+	"message_nogroup": "Dear [first_name],\n\nI am writing because according to our records, you are not currently listed as a member of any student team for this unit.\n\nAs you would be aware, there is a group assignment due later in the semester. If you do not belong to a team, you will be unable to complete the assignment.\n\nIf there is another circumstance that would prevent you from joining a group project, please let me know as soon as possible.\n\nPlease let me know if there is anything I can do to support you in the meantime.",
+	"subject_invitation": "Peer Evaluation now available",
+	"message_invitation": {
+		"Qualtrics": "Dear [First Name],\n\nThe Peer Evaluation survey is now available.\n\nYou may access it via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.",
+		"LimeSurvey": "Dear [firstname],\n\nThe Peer Evaluation survey is now available.\n\nYou may access it via this link: (obtain this link from LimeSurvey Settings -> Overview)\n\nYour access code is: [token]."
+	},
+	"subject_reminder": "Reminder: Peer Evaluation due",
+	"message_reminder": {
+		"Qualtrics": "Dear [First Name],\n\nThis is a courtesy reminder to complete the Peer Evaluation survey. According to our records, you have not yet completed this survey.\n\nYou may access the survey via this link: [Link]\n\nThis link is unique to yourself, so please do not share it with other people.",
+		"LimeSurvey": "Dear [firstname],\n\nThis is a courtesy reminder to complete the Peer Evaluation survey. According to our records, you have not yet completed this survey.\n\nYou may access the survey via this link: (obtain this link from LimeSurvey Settings -> Overview)\n\nYour access code is: [token]."
+	},
+	"subject_thankyou": "Thank you for completing the Peer Evaluation",
+	"message_thankyou": {
+		"Qualtrics": "Dear [First Name],\n\nThank you for completing the Peer Evaluation. There is no need to take any further action.",
+		"LimeSurvey": "Dear [firstname],\n\nThank you for completing the Peer Evaluation. There is no need to take any further action."
+	},
+	"EmailFormat": "[sisId]@student.swin.edu.au"
+}

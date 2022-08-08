@@ -8,6 +8,7 @@ Created on Fri Mar 11 17:54:28 2022
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
+import threading
 
 from modules.functions import *
 import modules.globals as globals
@@ -39,7 +40,7 @@ class ExportGroups():
         self.exportgroups_groupset = ttk.Combobox(self.exportgroups, width = 60, state="readonly")
         self.exportgroups_groupset.grid(row = 2, column = 1, sticky = "W", padx = 5)
         
-        self.exportgroups_export = tk.Button(self.exportgroups, text = "Start Download", fg = "black", command = self.begin_export)
+        self.exportgroups_export = tk.Button(self.exportgroups, text = "Start Download", fg = "black", command = lambda : threading.Thread(target=self.begin_export, daemon = True).start()) #self.begin_export2)
         self.exportgroups_export.grid(row = 4, columnspan = 2, pady = 5)
 
         self.group_sets_id = []
@@ -48,12 +49,7 @@ class ExportGroups():
         self.exportgroups_unit["values"] = tuple(globals.session["course.names"])
         self.exportgroups_unit.current(0)
         self.group_sets()
-        
-        self.statusbar = tk.Label(self.exportgroups, text="", bd=1, relief=tk.SUNKEN, anchor=tk.W)
-        self.statusbar.grid(row = 5, columnspan = 2, sticky = "ew")
-        
-        self.status("")
-        
+                
         if preset!="classlist" and globals.config["firsttime_export"] == True:
             messagebox.showinfo("Reminder", "Before creating a Contacts list for Qualtrics, it is recommended you check the accuracy of the group membership data in Canvas. Use the \"Confirm group membership\" function in the main menu to contact students to confirm their membership in each team.")
             globals.config["firsttime_export"] = False
@@ -72,11 +68,7 @@ class ExportGroups():
         else:
             self.exportgroups_groupset["values"] = ()
             self.exportgroups_groupset.set('')
-    
-    def status(self, text): 
-        self.statusbar["text"] = text
-        self.statusbar.update_idletasks()
-    
+                    
     def begin_export(self, event_type = ""):
         if self.preset=="classlist":
             filename = tk.filedialog.asksaveasfilename(initialfile=globals.session["course.names"][self.exportgroups_unit.current()], defaultextension=".xlsx", title = "Save Exported Data As...", filetypes = (("Excel files","*.xlsx"),("all files","*.*")))
@@ -84,7 +76,7 @@ class ExportGroups():
             filename = tk.filedialog.asksaveasfilename(initialfile=globals.session["course.names"][self.exportgroups_unit.current()] +" (Contacts List)", defaultextension=".csv", title = "Save Contacts List As...", filetypes = (("Comma separated values files","*.csv"),("all files","*.*")))
 
         if filename is None or filename == "": return
-
+        
         # Log the action
         server.log_action("Export student list", globals.session["course.names"][self.exportgroups_unit.current()], globals.session["course.ids"][self.exportgroups_unit.current()])
 
@@ -251,7 +243,7 @@ class ExportGroups():
             print("\nCreating Contacts file to be uploaded to " + globals.config["SurveyPlatform"] + ".")
             writeCSV(student_list, filename)
             messagebox.showinfo("Download complete.", "Contacts file saved as \"{}\".".format(filename))
-        
+
         self.master.destroy()
 
 

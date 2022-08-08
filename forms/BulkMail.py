@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
+import threading
 
 from modules.functions import *
 import modules.globals as globals
@@ -19,37 +20,22 @@ class BulkMail:
         self.preset = preset
         self.master = master
         self.master.title("Send Bulk Message via Canvas")
-        self.master.resizable(0, 0)
+        self.master.resizable(True, True)
         
         self.master.bind("<FocusIn>", self.check_focus)
         
+        # Set the inner frame (window) to expand to the entire size of the window
+        self.master.rowconfigure(0, weight=1)
+        self.master.columnconfigure(0, weight=1)
+
+        # Set up inner frame        
         self.window = tk.Frame(self.master)
-        self.window.pack()
+        self.window.grid(row = 0, column = 0, sticky="NEWS", padx=10, pady=10)
+        self.window.columnconfigure(1, weight=1) # Column 1 will expand as the window expands
         
-        tk.Label(self.window, text = "Unit:", fg = "black").grid(row = 1, column = 0, sticky = "E", pady = 5)
-        self.window_unit = ttk.Combobox(self.window, width = 60, state="readonly")
-        self.window_unit.grid(row = 1, column = 1, sticky = "W", padx = 5)
-        self.window_unit["values"] = tuple(globals.session["course.names"])
-        self.window_unit.current(0)
-
-        self.sec_text = tk.StringVar()
-        self.sec_text.set("Distribution list file")
-        self.secondary_lab = tk.Label(self.window, textvariable = self.sec_text, fg = "black").grid(row = 3, column = 0, sticky = "E", pady = 5)        
-
-        # Distribution list file
-        self.window_distlist = tk.Button(self.window, text = "Select...", fg = "black", command = self.select_file)
-        self.window_distlist.grid(row = 3, column = 1, pady = 5, padx = 5, sticky = "W")
-        self.datafile = tk.Label(self.window, text = "", fg = "black")
-        self.datafile.grid(row = 4, column = 1, pady = 5, sticky = "W")
-
-        # Group sets
-        self.window_groupset = ttk.Combobox(self.window, width = 60, state="readonly")
-        self.group_sets(self)
-        self.window_unit.bind("<<ComboboxSelected>>", self.group_sets)
-        #self.groupset.grid(row = 3, column = 1, sticky = "W", padx = 5)
-
+        # Send Via...
         tk.Label(self.window, text = "Send to (via):", fg = "black").grid(row = 0, column = 0, sticky = "E", pady = 5)
-        self.window_sendto = ttk.Combobox(self.window, width = 60, state="disabled")
+        self.window_sendto = ttk.Combobox(self.window, state="disabled", width = 40)
         self.window_sendto.grid(row = 0, column = 1, sticky = "W", pady = 5, padx = 5)
         self.window_sendto["values"] = ["All students (Canvas)",
                                         "Students in groups (Canvas)",
@@ -61,23 +47,49 @@ class BulkMail:
         self.change_message(self)
         self.window_sendto.bind("<<ComboboxSelected>>", self.change_message)
         
+        # Select Unit
+        tk.Label(self.window, text = "Unit:", fg = "black").grid(row = 1, column = 0, sticky = "E", pady = 5)
+        self.window_unit = ttk.Combobox(self.window, state="readonly", width = 60)
+        self.window_unit.grid(row = 1, column = 1, sticky = "W", padx = 5)
+        self.window_unit["values"] = tuple(globals.session["course.names"])
+        self.window_unit.current(0)
+
+        # Select Distribution List File
+        self.sec_text = tk.StringVar()
+        self.sec_text.set("Distribution list file")
+        self.secondary_lab = tk.Label(self.window, textvariable = self.sec_text, fg = "black")
+        self.secondary_lab.grid(row = 3, column = 0, sticky = "E", pady = 5)        
+
+        self.window_distlist = tk.Button(self.window, text = "Select...", fg = "black", command = self.select_file)
+        self.window_distlist.grid(row = 3, column = 1, pady = 5, padx = 5, sticky = "W")
+
+        self.datafile = tk.Label(self.window, text = "", fg = "black")
+        self.datafile.grid(row = 4, column = 1, pady = 5, sticky = "W")
+
+        # Group sets
+        self.window_groupset = ttk.Combobox(self.window, state="readonly")
+        self.group_sets(self)
+        self.window_unit.bind("<<ComboboxSelected>>", self.group_sets)
+        
         tk.Label(self.window, text = "Message:", fg = "black").grid(row = 5, column = 0, columnspan = 2, pady = 5, padx = 5)
 
+        # Subject
         tk.Label(self.window, text = "Subject:", fg = "black").grid(row = 6, column = 0, sticky = "E", pady = 5)
         self.subject_text = tk.StringVar()
         self.subject = tk.Entry(self.window, textvariable = self.subject_text)
         self.subject.grid(row = 6, column = 1, pady = 5, padx = 5, sticky = "WE")
         self.subject_text.set(subject)
 
-        self.message = tk.Text(self.window, width = 60, height = 15, wrap = tk.WORD)
-        self.message.grid(row = 7, column = 0, columnspan = 2, sticky = "W", pady = 5, padx = 5)
+        self.message = tk.Text(self.window, height = 15, wrap = tk.WORD)
+        self.message.grid(row = 7, column = 0, columnspan = 2, sticky = "NEWS", pady = 5, padx = 5)
         self.message.bind("<KeyRelease>", self.check_status)
         self.message.insert(tk.END, message)
+        self.window.rowconfigure(7, weight=1)
         
         self.button_field = tk.Button(self.window, text = "Fields...", fg = "black", command = self.field_picker)
         self.button_field.grid(row = 8, column = 0, columnspan = 2, sticky = "W", padx = 5)
         
-        self.sendmessage = tk.Button(self.window, text = "Send Bulk Message", fg = "black", state = "disabled", command = self.MessageSend)
+        self.sendmessage = tk.Button(self.window, text = "Send Bulk Message", fg = "black", state = "disabled", command = lambda : threading.Thread(target=self.MessageSend, daemon = True).start()) #self.MessageSend)
         self.sendmessage.grid(row = 8, column = 0, columnspan = 2, pady = 5)
        
         self.distlist = {}
@@ -379,11 +391,13 @@ bm = None
 def BulkMail_call(preset = ""):
     global bm
     window = tk.Toplevel()
+    window.resizable(True,True)
     bm = BulkMail(window)
     
 def BulkMail_confirm():
     global bm
     window = tk.Toplevel()
+    window.resizable(True,True)
     bm = BulkMail(window,
                   preset = "confirm", 
                   subject = globals.config["subject_confirm"],
@@ -392,6 +406,7 @@ def BulkMail_confirm():
 def BulkMail_nogroup():
     global bm
     window = tk.Toplevel()
+    window.resizable(True,True)
     bm = BulkMail(window,
                   preset = "nogroup", 
                   subject = globals.config["subject_nogroup"],
@@ -400,6 +415,7 @@ def BulkMail_nogroup():
 def BulkMail_invitation():
     global bm
     window = tk.Toplevel()
+    window.resizable(True,True)
     bm = BulkMail(window,
                   preset = "invitation", 
                   subject = globals.config["subject_invitation"],
@@ -408,6 +424,7 @@ def BulkMail_invitation():
 def BulkMail_reminder():
     global bm
     window = tk.Toplevel()
+    window.resizable(True,True)
     bm = BulkMail(window,
                   preset = "reminder", 
                   subject = globals.config["subject_reminder"],

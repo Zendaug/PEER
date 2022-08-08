@@ -113,3 +113,13 @@ New features:
 * Greater modularisation of PEER
 Bug fixes:
 * Fixed a bug causing PEER to crash while parsing a TSV/CSV file.
+
+Version 0.10.1 (2022-05-24)
+Bug fixes:
+* Fixed a small bug in which non-standard character codes in assignments caused PEER to crash.
+
+Version 0.11.0 (2022-07-27)
+* Created a new console window, and moved the PEER commands to a sub-menu.
+* PEER renames (rather than deletes) any provided "update.txt" file.
+* PEER is now distributed as a smaller executable with dependencies in a subfolder.
+* Moved new versions of the repository to GitHub.

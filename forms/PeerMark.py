@@ -10,6 +10,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 from tkcalendar import DateEntry
 from datetime import datetime
+import threading
 
 from modules.functions import *
 import modules.globals as globals
@@ -20,7 +21,7 @@ import modules.survey as survey_class
 import modules.canvas as canvas
 
 class PeerMark():
-   def __init__(self, master):
+   def __init__(self, master):      
        self.master = master
        self.master.title("Calculate Peer Marks")
        self.master.resizable(0, 0)
@@ -77,7 +78,7 @@ class PeerMark():
        ToolTip.CreateToolTip(self.peermark_customise, text =
                       'Review/modify the policies for scoring the peer mark.')
     
-       self.peermark_calculate = tk.Button(self.peermark, text = "Calculate marks", fg = "black", command = self.start_calculate, state = 'disabled')
+       self.peermark_calculate = tk.Button(self.peermark, text = "Calculate marks", fg = "black", command = lambda : threading.Thread(target=self.start_calculate, daemon = True).start(), state = 'disabled')
        self.peermark_calculate.grid(row = 7, column = 0, padx = 5, columnspan = 2, pady = 5)
        ToolTip.CreateToolTip(self.peermark_calculate, text =
                       'Calculate the peer marks and upload them to Canvas, along\n' +
@@ -126,7 +127,7 @@ class PeerMark():
         assns = globals.GQL.group_assignments()
         for assn in assns:
             self.assn_id.append(assn)
-            self.assn_name.append(assns[assn]["name"])
+            self.assn_name.append(clean_text(assns[assn]["name"]))
         
         self.peermark_assn["values"] = tuple(self.assn_name)
         try: # Some courses do not have assignments (bizarrely enough!)

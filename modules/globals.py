@@ -12,6 +12,7 @@ from canvasapi import Canvas
 from modules.functions import *
 
 # Global variables
+version = 0
 canvas = None
 canvas_data = ""
 hard_defaults = {}
@@ -77,7 +78,8 @@ try:
     f = open("defaults.txt", "r")
     defaults = json.loads(f.read())
     f.close()
-    for item in defaults: config[item] = defaults[item]
+    for item in defaults:
+        config[item] = defaults[item]
 except:
     defaults = hard_defaults
 
@@ -96,7 +98,11 @@ try:
     user_config = json.loads(f.read())
     f.close()
     for item in user_config: config[item] = user_config[item]
-    os.remove("update.txt")
+    try:
+        os.remove("update_completed.txt")
+    except:
+        pass
+    os.rename("update.txt", "update_completed.txt")
     save_config(config)
 except:
     pass

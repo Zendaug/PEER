@@ -34,3 +34,12 @@ def user_login():
         return(result.json())
     except:
         pass
+    
+def check_version():
+    try:
+        return(requests.get("https://api.github.com/repos/Zendaug/PEER/releases", 
+                     headers = {"Authorization": "token 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"}).json()[0])
+    except:
+        pass
+    
+a = check_version()

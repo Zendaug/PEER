@@ -10,6 +10,7 @@ from tkinter import messagebox
 
 import modules.globals as globals
 import forms.Settings as Settings
+import modules.functions as func
 
 class GraphQL():
     def __init__(self, course_id = 0, groupset_id = 0):
@@ -36,7 +37,7 @@ class GraphQL():
         temp2 = {}
         for course in temp:
             temp2[int(course["_id"])] = {}
-            temp2[int(course["_id"])]["name"] = course["name"]
+            temp2[int(course["_id"])]["name"] = func.clean_text(course["name"])
         df = {}
         for a in sorted(temp2.keys(), reverse = True):
             df[str(a)] = temp2[a]
@@ -50,7 +51,7 @@ class GraphQL():
                 query_result = self.query('query MyQuery {course(id: "' + str(self.course_id) + '") {assignmentsConnection {nodes {_id name pointsPossible assignmentGroup {_id name} groupSet {_id}}}}}')["data"]["course"]["assignmentsConnection"]["nodes"]
                 for assn in query_result:
                     self.cache["assn_" + str(self.course_id)][assn["_id"]] = {}
-                    self.cache["assn_" + str(self.course_id)][assn["_id"]]["name"] = assn["name"]
+                    self.cache["assn_" + str(self.course_id)][assn["_id"]]["name"] = func.clean_text(assn["name"])
                     self.cache["assn_" + str(self.course_id)][assn["_id"]]["pointsPossible"] = assn["pointsPossible"]
                     self.cache["assn_" + str(self.course_id)][assn["_id"]]["assignmentGroup"] = assn["assignmentGroup"]
                     self.cache["assn_" + str(self.course_id)][assn["_id"]]["groupSet"] = assn["groupSet"]
@@ -74,7 +75,7 @@ class GraphQL():
                 assn_group = assns[assn]["assignmentGroup"]
                 if assn_group["_id"] not in self.cache["assn_group_" + str(self.course_id)]:
                     self.cache["assn_group_" + str(self.course_id)][assn_group["_id"]] = {}
-                    self.cache["assn_group_" + str(self.course_id)][assn_group["_id"]]["name"] = assn_group["name"]
+                    self.cache["assn_group_" + str(self.course_id)][assn_group["_id"]]["name"] = func.clean_text(assn_group["name"])
         return(self.cache["assn_group_" + str(self.course_id)])        
 
     def group_sets(self):
@@ -91,7 +92,7 @@ class GraphQL():
             self.cache["sections_" + str(self.course_id)] = {}
             for section in query_result:
                 self.cache["sections_" + str(self.course_id)][section["_id"]] = {}
-                self.cache["sections_" + str(self.course_id)][section["_id"]]["name"] = section["name"]
+                self.cache["sections_" + str(self.course_id)][section["_id"]]["name"] = func.clean_text(section["name"])
         return(self.cache["sections_" + str(self.course_id)])
     
     def students(self):
@@ -102,7 +103,7 @@ class GraphQL():
                 if (student["type"] == "StudentEnrollment"):
                     if (student["user"]["_id"] not in self.cache["students_" + str(self.course_id)]["id"]):
                         self.cache["students_" + str(self.course_id)]["id"].append(student["user"]["_id"])
-                        self.cache["students_" + str(self.course_id)]["name"].append(student["user"]["name"])
+                        self.cache["students_" + str(self.course_id)]["name"].append(func.clean_text(student["user"]["name"]))
                         self.cache["students_" + str(self.course_id)]["email"].append(student["user"]["email"])
         return(self.cache["students_" + str(self.course_id)])
     
@@ -115,7 +116,7 @@ class GraphQL():
                     temp = groupset["groupsConnection"]["nodes"]
                     df = {}
                     for group in temp:
-                        df[group["_id"]] = {"name": group["name"], "users": []}
+                        df[group["_id"]] = {"name": func.clean_text(group["name"]), "users": []}
                         for user in group["membersConnection"]["nodes"]:
                             df[group["_id"]]["users"].append(user["user"]["_id"])
                     self.cache["groups_" + str(self.course_id)] = df
@@ -135,9 +136,9 @@ class GraphQL():
         for student in query_result:
             if (student["type"] == "StudentEnrollment"):
                 if (student["user"]["_id"] not in student_series):
-                    student_series[student["user"]["_id"]] = {"name": student["user"]["name"], "email": student["user"]["email"], "sisId": student["user"]["sisId"]}
-                    student_series[student["user"]["_id"]]["first_name"] = student["user"]["name"][0:student["user"]["name"].find(" ")]
-                    student_series[student["user"]["_id"]]["last_name"] = student["user"]["name"][student["user"]["name"].rfind(" ")+1:]
+                    student_series[student["user"]["_id"]] = {"name": func.clean_text(student["user"]["name"]), "email": student["user"]["email"], "sisId": student["user"]["sisId"]}
+                    student_series[student["user"]["_id"]]["first_name"] = func.clean_text(student["user"]["name"][0:student["user"]["name"].find(" ")])
+                    student_series[student["user"]["_id"]]["last_name"] = func.clean_text(student["user"]["name"][student["user"]["name"].rfind(" ")+1:])
                     student_series[student["user"]["_id"]]["sections"] = []
 
                     # Recreate the student's email address from the sis ID, if the email field is blank
@@ -162,7 +163,7 @@ class GraphQL():
                 group = find_group(student, groups)
                 if (group != "0"):
                     student_series[student]["group_id"] = group
-                    student_series[student]["group_name"] = groups[group]["name"]
+                    student_series[student]["group_name"] = func.clean_text(groups[group]["name"])
                             
         # Find the students' peers (if they are in a group)
         for student in student_series:
@@ -184,9 +185,9 @@ class GraphQL():
         for teacher in query_result:
             if (teacher["type"] == "TeacherEnrollment"):
                 if (teacher["user"]["_id"] not in teacher_series):
-                    teacher_series[teacher["user"]["_id"]] = {"name": teacher["user"]["name"], "email": teacher["user"]["email"]}
-                    teacher_series[teacher["user"]["_id"]]["first_name"] = teacher["user"]["name"][0:teacher["user"]["name"].find(" ")]
-                    teacher_series[teacher["user"]["_id"]]["last_name"] = teacher["user"]["name"][teacher["user"]["name"].rfind(" ")+1:]
+                    teacher_series[teacher["user"]["_id"]] = {"name": func.clean_text(teacher["user"]["name"]), "email": teacher["user"]["email"]}
+                    teacher_series[teacher["user"]["_id"]]["first_name"] = func.clean_text(teacher["user"]["name"][0:teacher["user"]["name"].find(" ")])
+                    teacher_series[teacher["user"]["_id"]]["last_name"] = func.clean_text(teacher["user"]["name"][teacher["user"]["name"].rfind(" ")+1:])
                     teacher_series[teacher["user"]["_id"]]["sections"] = []
                 teacher_series[teacher["user"]["_id"]]["sections"].append(teacher["section"]["_id"])
                 
