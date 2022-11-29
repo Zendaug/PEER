@@ -9,4 +9,6 @@ The PEER app performs three main functions. The app:
 * Provides a bulk messaging function that can be used to confirm group membership, send out unique survey invitation links, and reminders
 * Automatically calculates peer marks from the survey data using different scoring methods, and it uploads these marks / feedback to the Canvas grade book
 
+Instructional videos for setting up and using PEER are <a href="https://www.youtube.com/playlist?list=PLS7KDBJfFk6_fv-xEFgUTavyVROdnV2T5">now available on YouTube.</a>
+
 <p xmlns:cc="http://creativecommons.org/ns#" xmlns:dct="http://purl.org/dc/terms/">The PEER app was developed by Associate Professor Timothy Bednall with the support of Dr Ryan Jopp at Swinburne University of Technology. &copy; Timothy Bednall 2019-present.</p>
